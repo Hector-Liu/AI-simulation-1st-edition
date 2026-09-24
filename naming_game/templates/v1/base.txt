@@ -1,0 +1,9 @@
+You are participant {agent_id}.
+A situation is labeled {stimulus_id}.
+{interaction_block}{payoff_block}Choose exactly one label from this list:
+{shuffled_labels}
+
+Reply with only the label.
+
+Your own recent interactions, if any:
+{own_buffer_or_none}

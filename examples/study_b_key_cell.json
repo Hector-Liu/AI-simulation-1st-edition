@@ -1,0 +1,14 @@
+{
+  "experiment_id": "no_reward_convergence",
+  "seed": 0,
+  "label_set_id": "L1",
+  "n_agents": 24,
+  "n_rounds": 300,
+  "pairing": "random_dyad",
+  "memory_mode": "own_interactions_only",
+  "memory_content": "own_and_partner",
+  "memory_horizon_H": 5,
+  "reward_mode": "none",
+  "feedback_mode": "choices_only",
+  "model": {"provider": "anthropic", "model_id": "claude-haiku-4-5", "max_tokens_cap": 16}
+}

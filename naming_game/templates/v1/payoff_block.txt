@@ -1,0 +1,6 @@
+Scoring rule for this pairing only:
+If you and the other participant choose the same label, you receive {match_payoff} points.
+If you choose different labels, you receive {mismatch_payoff} points.
+Your objective is to maximize your own points across pairings.
+{cumulative_line}
+

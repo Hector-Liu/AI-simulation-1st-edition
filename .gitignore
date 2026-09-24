@@ -1,0 +1,12 @@
+# secrets
+.env
+.env.*
+!.env.example
+# environments
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# run outputs (can be large; share via export zip)
+logs/
+.DS_Store

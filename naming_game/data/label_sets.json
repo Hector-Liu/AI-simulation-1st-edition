@@ -1,0 +1,53 @@
+{
+  "L1": {
+    "labels": [
+      "Laba",
+      "Zago",
+      "Gibo",
+      "Kepe",
+      "Niru",
+      "Mune",
+      "Neba",
+      "Vapa",
+      "Pubi",
+      "Soru"
+    ],
+    "hash": "f626bcf8b9ce2aa5e318d7f1a066a5ac1041d774bba92fb8db69b48f4b1f35af",
+    "generator_seed": 20260924,
+    "pattern": "CVCV"
+  },
+  "L2": {
+    "labels": [
+      "Limi",
+      "Kife",
+      "Fiza",
+      "Bipe",
+      "Sefe",
+      "Mava",
+      "Pulo",
+      "Vago",
+      "Ziru",
+      "Poko"
+    ],
+    "hash": "0d8e284cf84cb46dedaa4b8743bb75016ed425d99b7697fb79055f51160994d3",
+    "generator_seed": 20260925,
+    "pattern": "CVCV"
+  },
+  "L3": {
+    "labels": [
+      "Tuzu",
+      "Vodo",
+      "Nufe",
+      "Dipa",
+      "Gimu",
+      "Fete",
+      "Situ",
+      "Tero",
+      "Varo",
+      "Vifi"
+    ],
+    "hash": "fa3662f192281604b56fbf36c7be264acf366986f2d7fc36ba2e7f06091769a4",
+    "generator_seed": 20260926,
+    "pattern": "CVCV"
+  }
+}

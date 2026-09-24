@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naming Game Simulator</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">Naming Game Simulator <span class="muted">· AI simulation 2nd</span></div>
+  <nav>
+    <button data-tab="setup" class="active">实验设置</button>
+    <button data-tab="monitor">运行监控</button>
+    <button data-tab="results">结果</button>
+    <button data-tab="settings">API 密钥</button>
+  </nav>
+</header>
+
+<main>
+<!-- ============================ SETUP ============================ -->
+<section id="tab-setup" class="tab active">
+  <div class="cols">
+    <form id="cfg" class="panel" onsubmit="return false">
+      <h2>预设 Presets</h2>
+      <div class="presets" id="presets"></div>
+
+      <h2>实验 Experiment</h2>
+      <div class="grid">
+        <label>experiment_id
+          <select name="experiment_id">
+            <option>no_reward_convergence</option><option>rewarded_naming</option>
+            <option>prior_calibration</option><option>null_model</option>
+          </select></label>
+        <label>label_set_id <select name="label_set_id"></select></label>
+        <label>seed <input name="seed" type="number" min="0" value="0"></label>
+        <label>n_agents <select name="n_agents"><option>12</option><option selected>24</option><option>48</option><option>20</option></select></label>
+        <label>n_rounds <input name="n_rounds" type="number" min="1" value="300"></label>
+        <label>pairing <select name="pairing"><option>random_dyad</option><option>star</option><option>community</option><option>isolated</option></select></label>
+        <label class="topo community">n_blocks <input name="n_blocks" type="number" min="2" value="2"></label>
+        <label class="topo community">p_within <input name="p_within" type="number" step="0.05" min="0.05" max="1" value="0.9"></label>
+        <label class="topo star">hub_id <input name="hub_id" value="a00"></label>
+      </div>
+
+      <h2>记忆 Memory</h2>
+      <div class="grid">
+        <label>memory_mode <select name="memory_mode"><option>own_interactions_only</option><option>none</option></select></label>
+        <label class="mem">memory_content <select name="memory_content"><option>own_and_partner</option><option>own_only</option></select></label>
+        <label class="mem">memory_horizon_H <input name="memory_horizon_H" type="number" min="1" value="5"></label>
+        <label class="mem">memory_order <select name="memory_order"><option>newest_first</option><option>oldest_first</option></select></label>
+      </div>
+
+      <h2>奖励与反馈 Reward &amp; feedback</h2>
+      <div class="grid">
+        <label>reward_mode <select name="reward_mode"><option>none</option><option>local_match</option></select></label>
+        <label>feedback_mode <select name="feedback_mode"><option>choices_only</option><option>numeric_score</option><option>match_indicator</option></select></label>
+        <label class="rew">payoff.match <input name="payoff_match" type="number" value="100"></label>
+        <label class="rew">payoff.mismatch <input name="payoff_mismatch" type="number" value="-50"></label>
+        <label class="check rew"><input name="show_cumulative_points" type="checkbox" checked> show_cumulative_points</label>
+        <label class="check"><input name="show_own_agent_id" type="checkbox" checked> show_own_agent_id</label>
+        <label class="check"><input name="robustness_cell" type="checkbox"> robustness_cell</label>
+      </div>
+
+      <h2>智能体策略 Policy &amp; model</h2>
+      <div class="grid">
+        <label>policy_default <select name="policy_default"><option>llm</option><option>majority_H</option><option>voter</option><option>prior_sample</option></select></label>
+        <label class="voter">voter q <input name="q" type="number" step="0.05" min="0" max="1" value="0.5"></label>
+        <label class="llm">provider <select name="provider"><option>anthropic</option><option>mock</option><option>openai</option><option>deepseek</option></select></label>
+        <label class="llm">model_id <input name="model_id" list="models" value="claude-haiku-4-5"></label>
+        <label class="llm">temperature <input name="temperature" type="number" step="0.1" min="0.1" placeholder="provider default"></label>
+        <label class="llm">max_tokens_cap <input name="max_tokens_cap" type="number" min="1" value="16"></label>
+        <label class="llm">max_concurrency <input name="max_concurrency" type="number" min="1" value="24"></label>
+        <label class="mock">mock_mode <select name="mock_mode"><option>uniform</option><option>majority</option></select></label>
+        <label class="mock">mock_invalid_rate <input name="mock_invalid_rate" type="number" step="0.01" min="0" max="0.9" value="0"></label>
+        <label class="wide">p0 (逗号分隔，留空=均匀) <input name="p0" placeholder="来自 Study 0 校准结果 p0_smoothed"></label>
+      </div>
+      <datalist id="models"></datalist>
+
+      <h2>坚定少数派 Committed minority</h2>
+      <div class="grid">
+        <label class="check"><input name="minority_on" type="checkbox"> 启用</label>
+        <label class="mino">frac <input name="minority_frac" type="number" step="0.01" value="0.15"></label>
+        <label class="mino">start_rule <select name="minority_start_rule"><option>after_consensus</option><option>round</option></select></label>
+        <label class="mino">start_round <input name="minority_start_round" type="number" value="50"></label>
+      </div>
+
+      <h2>备注 Notes</h2>
+      <textarea name="notes" rows="2" placeholder="只存档，不进入提示词"></textarea>
+    </form>
+
+    <div class="side">
+      <div class="panel">
+        <h2>校验与成本 Validation</h2>
+        <div id="validation" class="muted">…</div>
+        <div id="estimate"></div>
+        <label class="check confirm" id="confirm-wrap" hidden><input type="checkbox" id="confirm-cost"> 我已确认上面的费用估算，允许调用付费模型</label>
+        <div class="actions">
+          <button id="btn-dry" class="secondary">试运行（mock，不联网）</button>
+          <button id="btn-run" class="primary">开始运行</button>
+        </div>
+        <div id="run-msg" class="muted"></div>
+      </div>
+      <div class="panel">
+        <h2>提示词预览 Prompt preview</h2>
+        <div class="seg" id="preview-seg">
+          <button data-p="this_config.first_round" class="active">本条件·首轮</button>
+          <button data-p="this_config.with_memory">本条件·有记忆</button>
+          <button data-p="other_arm.first_round">另一臂·首轮</button>
+          <button data-p="other_arm.with_memory">另一臂·有记忆</button>
+        </div>
+        <pre id="preview" class="prompt"></pre>
+        <p class="muted small">这是发送给模型的完整文本（单条 user 消息，无 system prompt）。标签顺序每条提示词独立打乱；预览里的记忆内容是示例。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ MONITOR ============================ -->
+<section id="tab-monitor" class="tab">
+  <div class="panel">
+    <div class="row between">
+      <h2 id="mon-title">当前没有运行</h2>
+      <button id="btn-cancel" class="danger" disabled>停止</button>
+    </div>
+    <div class="progress"><div id="mon-bar"></div></div>
+    <div class="cards" id="mon-cards"></div>
+    <div class="chart" id="mon-chart"></div>
+    <pre id="mon-log" class="log"></pre>
+  </div>
+</section>
+
+<!-- ============================ RESULTS ============================ -->
+<section id="tab-results" class="tab">
+  <div class="panel">
+    <div class="row between"><h2>运行记录 Runs</h2><button id="btn-refresh" class="secondary">刷新</button></div>
+    <p class="muted small">勾选多条运行可叠加比较曲线，并汇总每个种子的最终获胜标签（H4 路径依赖）。</p>
+    <div class="table-wrap"><table id="runs-table"></table></div>
+  </div>
+  <div class="panel" id="compare" hidden>
+    <h2>比较 Compare</h2>
+    <div class="seg" id="metric-seg">
+      <button data-m="state_entropy_norm" class="active">state_entropy_norm</button>
+      <button data-m="state_modal_share">state_modal_share</button>
+      <button data-m="round_entropy_norm">round_entropy_norm</button>
+      <button data-m="switch_rate">switch_rate</button>
+    </div>
+    <div class="seg" id="axis-seg">
+      <button data-a="round" class="active">x = round</button>
+      <button data-a="t_pc_mean">x = t_pc（人均交互）</button>
+    </div>
+    <div class="chart" id="cmp-chart"></div>
+    <div id="winners"></div>
+  </div>
+  <div class="panel" id="detail" hidden></div>
+</section>
+
+<!-- ============================ SETTINGS ============================ -->
+<section id="tab-settings" class="tab">
+  <div class="panel narrow">
+    <h2>API 密钥</h2>
+    <p class="muted">密钥只保存在本机的 <code>.env</code> 文件里（不会上传到 GitHub）。</p>
+    <div id="keys"></div>
+    <div class="grid">
+      <label>provider <select id="key-provider"><option>anthropic</option><option>openai</option><option>deepseek</option></select></label>
+      <label class="wide">API key <input id="key-value" type="password" autocomplete="off"></label>
+    </div>
+    <div class="actions"><button id="btn-key" class="primary">保存</button></div>
+    <div id="key-msg" class="muted"></div>
+  </div>
+</section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

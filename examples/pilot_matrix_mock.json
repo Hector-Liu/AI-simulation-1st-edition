@@ -1,0 +1,15 @@
+{
+  "base": {
+    "experiment_id": "no_reward_convergence",
+    "n_agents": 24,
+    "n_rounds": 100,
+    "reward_mode": "none",
+    "feedback_mode": "choices_only",
+    "model": {"provider": "mock", "model_id": "mock", "mock_mode": "majority"}
+  },
+  "factors": {
+    "memory_mode": ["none", "own_interactions_only"]
+  },
+  "n_seeds": 2,
+  "label_sets": ["L1", "L2", "L3"]
+}

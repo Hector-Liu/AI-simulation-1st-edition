@@ -11,3 +11,4 @@ __pycache__/
 logs/
 .DS_Store
 local_settings.json
+node_modules/

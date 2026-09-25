@@ -1,93 +1,142 @@
-# Naming Game Simulator（AI simulation 2nd）
+# Naming Game Simulator
 
-这是一个研究用的 LLM 多智能体**命名博弈（naming game）**模拟器，用来检验：只靠局部、私有、两两之间的互动，一群 LLM 智能体能否形成群体层面的惯例（Lewis convention）；有奖励和没有奖励两种条件下，结果是否不同。
+**Can a population of LLM agents invent a shared convention with no leader, no global view and no instruction to agree?**
 
-它脱胎于旧项目 `concordia-sim-builder`（Google DeepMind Concordia 的网页封装），但**完全不依赖 Concordia**。Concordia 的 Game Master 会用 LLM 改写观察内容，会给智能体加上固定的角色扮演指令，也无法精确控制提示词或设定随机种子。这些都会破坏实验不变量（见 `docs/SPEC-naming-game-v1.0.md` §4.1）。本程序是一个独立的协议引擎：每次模型调用只发一条 user 消息，发送的文本被逐字记录。
+This is research software for running controlled *naming-game* experiments with language-model agents. Agents meet in random pairs, each picks a name from a list of nonsense words, and each remembers only its own recent encounters. No prompt ever mentions agreement, groups or other pairs. The question is whether a population-wide convention (a Lewis convention) appears anyway, and under which conditions.
 
-## 一键启动
+[中文说明 → README.zh-CN.md](README.zh-CN.md)
 
-1. 在访达里双击 **`一键启动.command`**。第一次运行会自动安装 Python 环境，大约 1–2 分钟。
-2. 浏览器会自动打开 `http://127.0.0.1:8765`。
-3. 用完关掉终端窗口即可停止。
+![A run in which 12 agents converge on one name](docs/assets/fig-one-run.svg)
 
-API 密钥：启动脚本会自动从旧项目 `../concordia-sim-builder/.env` 复制 `ANTHROPIC_API_KEY` 到本项目的 `.env`。`.env` 只保存在本机，已写入 `.gitignore`，不会上传。也可以在网页的「API 密钥」页填写。
+## Pilot findings (exploratory)
 
-在终端里启动：`./start.sh`（macOS/Linux）。
+These are pilot runs with Claude Haiku 4.5 (plus two Claude Sonnet 5 runs) at temperature 1.0. They are not yet a preregistered study.
 
-## 网页里能做什么（界面为英文）
+- **Reward + memory of partners is what produces a convention.**
+  - In room **A2** (points for matching, and memory of what recent partners chose), **4 of 4** runs converged on a single name. Every agent was using that name by round 19, 26, 26 and 47 respectively, with 12 or 24 agents.
+  - None of the 12 runs in the other rooms converged. These were: no reward, memory of own choices only, no memory, or partners replaced by replayed choices. The most common name stayed at 12–33 %.
+- **The winner is arbitrary, and history decides it.**
+  - In round 0, every agent chose the **first** name in its (shuffled) list, so the starting distribution is effectively a lottery.
+  - Different runs converged on different names: Gima, Rozo, Fego, Fuvo. A name that began as a minority can win.
+- **The micro-rule is inertia plus threshold copying.**
+  - In the run shown above, 452 of 468 decisions repeated the agent's previous choice.
+  - All 16 changes adopted the name the last partner had used.
+  - An agent switched mainly after most of its recent partners had used the same other name: 42 % switch rate when 4 of its last 5 partners agreed, and 4–6 % otherwise.
+- **The path is symmetry breaking, then tipping, then lock-in.**
+  - Two camps of three started level.
+  - A chance pairing gave one camp a fourth member, and larger camps match more often, so they attract more converts.
+  - Once past half the population, the remaining holdouts tipped within seven rounds.
+  - After that there were 20 rounds of 100 % coordination with no deviation.
 
-| 页面 | 功能 |
-|---|---|
-| **Study Plan** | 研究主页面。上方是 2 × 3 的六个"房间"（奖励 × 记忆），下方是三个可选的对照房间（B2R / A2R 假对手、NS2 "参考标签"框架）。在房间上勾选 Select，然后在右侧选择词表（可多选）、每个词表跑几次、人数、轮数、记忆长度、模型、温度、阶段（pilot / confirmatory / exploratory），看完费用估算后点 Launch。多个房间的运行会随机交错执行。点房间可以看到它所有运行的曲线、获胜标签和结果表；点某一次运行会打开详情窗口 |
-| **Custom run** | 单次运行，所有参数都可以手动调。设置恰好符合某个房间时，这次运行会自动计入那个房间 |
-| **Monitor** | 实时查看正在运行的批次（第几次、哪个房间、哪个词表）和曲线；可以停止 |
-| **All runs** | 所有运行（包括不属于任何房间的），可以多选叠加比较 |
-| **Label sets** | 三个预设词表（P1–P3，已冻结），以及不限数量的自定义词表：新建、复制、编辑、删除；有自动检查和"随机生成无意义词"按钮。已经有运行的词表会被锁定 |
-| **API & Models** | API 密钥；默认 Claude 模型；添加 OpenAI 模型及其价格；每个模型都有 Test 按钮 |
+![Share of the most common name over rounds, by room](docs/assets/fig-rooms.svg)
 
-默认温度是 1.0，也就是模型自身的采样分布。原因见 `docs/IMPLEMENTATION_NOTES.md` 中的 "Temperature"。
+A control room that uses a non-social "reference label" wording (NS2) also converged. We think its wording implies a correct answer, so it is being revised and is left out of the figure.
 
-### 下载内容（Results → Downloads）
+## How an experiment is built
 
-| 文件 | 内容 |
-|---|---|
-| Readable transcript (.txt) | 逐轮记录：`a03 (Laba) × a17 (Zago) → different labels`，每轮末尾附群体状态 |
-| Transcript with full prompts (.txt) | 在上面的基础上加入每个智能体收到的完整提示词和原始回答 |
-| Interaction table (.csv) | 每个配对每轮一行：轮次、双方、各自选择、是否相同、得分、原始输出 |
-| Choice-model data (.csv) | H3 条件 logit 用的长格式数据 |
-| All raw data (.zip) | 这次运行的全部原始文件 |
+| | No memory | Own choices only | Own + partner choices |
+|---|---|---|---|
+| **No reward** | B0 prior baseline | B1 self-persistence | B2 key cell |
+| **Reward for matching** | A0 focal point | A1 self-persistence | **A2 rewarded naming game** |
 
-### 为什么每条提示词都要做禁用词检查
+Optional control rooms isolate interaction from exposure:
+- **B2R / A2R**: the partner's choice is replaced by a draw from a matched prior;
+- **NS2**: non-social framing.
 
-研究要回答的是：惯例能否**仅凭两两互动**产生。如果提示词里出现 *agree / coordinate / consensus / majority / most / the group* 这类词，模型等于被告知"要趋同"，或者拿到了群体层面的信息；无奖励臂里如果出现 *points / score / win*，等于偷偷加入了激励。无论哪种，结果都只能说明模型在服从指令，而不是出现了涌现。模板本身已经避开了这些词；自动检查是一道保险，防的是日后改模板、新增配置组合或渲染数据时意外混入这些词。一旦命中就停止运行，检查结果写进 `leakage_report.json`，作为 SPEC §7.6 第 6 条"泄漏审计通过"的证据。
+The **Study Plan** page lets you tick rooms, pick label sets, seeds, population size, rounds, memory length, model and temperature. It shows a cost estimate, then runs everything interleaved. Every room collects its runs, curves and winners.
 
-## 实验不变量（代码层面保证，测试层面验证）
+![Study plan page](docs/assets/ui-study-plan.png)
 
-- 智能体只有**私有**的环形缓冲区，只记录自己参与过的互动。唯一的记忆写入函数是 `commit_dyad()`。
-- 提示词里**绝不出现**群体统计或其他配对的信息。唯一的提示词构造函数是 `build_agent_prompt()`，发送前每条提示词都要过 denylist 和正则检查，一旦命中就中止运行（fail-closed）。
-- 一轮之内的所有提示词都在任何选择产生**之前**构造完（保证同时性）。标签顺序每条提示词独立打乱。
-- 有奖励和无奖励两条臂的提示词**只**相差 payoff 段和记录后缀。
-- 解析器严格，不做模糊匹配。无效输出会用同一提示词重试一次；仍无效则该配对作废（void），不写入记忆，原始文本照样保存。
-- 由 LLM 判断"是否涌现"是不允许的，所有指标都由程序计算。
+Each run has an overview (entropy, consensus round, winner, leakage check, exact model version), a round-by-round interaction browser, every model call, and downloads.
 
-## 数据输出
+![Run detail](docs/assets/ui-run-detail.png)
 
-每次运行的数据在 `logs/experiments/{experiment_id}/{run_id}/`：
+## Design guarantees
 
-| 文件 | 内容 |
-|---|---|
-| `config.json`, `manifest.json` | 配置、config_hash、模板和标签集哈希、git commit、包版本、模型版本、实际生效的采样参数 |
-| `calls.jsonl` | 每次模型调用一行：完整提示词、provider messages、原始输出、解析结果、tokens、延迟 |
-| `interactions.csv` | 每个参与者每个配对一行（SPEC §6 的全部字段） |
-| `population.csv` | 每轮一行：本轮选择 / 群体状态 / 去掉少数派后的状态，各自的熵、众数、份额 |
-| `summary.json`, `leakage_report.json` | 运行级结果（§7.2），泄漏检查结果 |
+These invariants are enforced in code and checked by tests. They are what make a result evidence of emergence rather than instruction-following:
 
-## 测试
+- **Private memory only.** Each agent has its own ring buffer of its own interactions. `commit_dyad()` is the only function that writes memory.
+- **No population information in any prompt.** `build_agent_prompt()` is the only prompt builder.
+- **Denylist guard.** Every prompt passes a denylist (*agree, coordinate, consensus, majority, group, …*; and in no-reward rooms, *points, score, win*) before it is sent. Any hit stops the run (fail-closed), and the audit is saved as `leakage_report.json`.
+- **Simultaneous rounds.** All prompts in a round are built before any answer arrives, and label order is reshuffled for every prompt.
+- **Minimal differences between conditions.** Rewarded and unrewarded prompts differ only in the payoff block.
+- **Constrained answers.** The model must return one label from the shown list (structured output), so there is no fuzzy parsing.
+- **Everything is logged:** exact prompts, raw outputs, model version and effective sampling parameters.
+- **No LLM ever judges emergence.** All metrics are computed.
+
+## Quick start
+
+macOS: double-click **`一键启动.command`** ("one-click start"). It creates the Python environment on first run and opens `http://127.0.0.1:8765`.
+
+Or from a terminal:
+
+```bash
+./start.sh
+```
+
+Set `ANTHROPIC_API_KEY` in `.env`, or on the **API & Models** page. `.env` stays local and is gitignored. OpenAI-compatible models can be added with their prices.
+
+Offline tests with a mock model. These must pass before any paid run:
 
 ```bash
 venv/bin/python -m pytest tests -q
 ```
 
-共 76 项测试，覆盖 SPEC §8 的验收测试 1–15 和 Web API，全部离线运行（mock 模型）。按 SPEC 的规定，任何付费运行之前这些测试都必须通过。
-
-## 命令行（批量实验用）
+Command line for batches:
 
 ```bash
-venv/bin/python -m naming_game.cli validate config.json      # 校验 + 费用估算 + 提示词
-venv/bin/python -m naming_game.cli dry-run config.json       # mock 全流程
-venv/bin/python -m naming_game.cli run config.json           # 单次运行（付费前会询问）
-venv/bin/python -m naming_game.cli matrix spec.json          # 析因矩阵，估算费用后运行
-venv/bin/python -m naming_game.cli resume RUN_ID
+venv/bin/python -m naming_game.cli validate examples/study_b_key_cell.json   # checks, cost estimate, sample prompts
+venv/bin/python -m naming_game.cli dry-run  examples/study_b_key_cell.json   # full run with the mock model
+venv/bin/python -m naming_game.cli run      examples/study_b_key_cell.json   # asks before spending
+venv/bin/python -m naming_game.cli matrix   examples/pilot_matrix_mock.json
 ```
 
-示例配置在 `examples/`。
+## Data produced per run
 
-## 文档
+Each run is saved in `logs/experiments/{experiment_id}/{run_id}/`:
 
-- `docs/SPEC-naming-game-v1.0.md`：已批准的实验设计规格
-- `docs/brief-original.md`：最初的实现 brief
-- `docs/IMPLEMENTATION_NOTES.md`：实现时做的选择、已验证的内容、尚未实现的部分（**预注册前请务必阅读**）
+| File | Content |
+|---|---|
+| `config.json`, `manifest.json` | Configuration and its hash, template and label-set hashes, git commit, model version, effective sampling parameters |
+| `calls.jsonl` | Every model call: full prompt, request parameters, raw output, parsed label, tokens, latency |
+| `interactions.csv` | One row per agent per pairing per round |
+| `population.csv` | Per round: entropy, most common label and its share, switch rate |
+| `summary.json`, `leakage_report.json` | Run-level results; prompt audit |
 
-## 来源说明
+The UI also exports readable transcripts, with or without full prompts, and a long-format table for choice models.
 
-提供方层和日志约定参考了 [concordia-sim-builder](https://github.com/ngstcf/concordia-sim-builder)（Apache-2.0），代码为重新编写。实验设计来自 Ashery, Aiello & Baronchelli (2025) 的命名博弈范式，以及本项目的 SPEC。
+The figures in this README are rebuilt from local logs with `venv/bin/python scripts/showcase/make_figures.py`.
+
+## Repository map
+
+```
+naming_game/      engine: config, rooms, prompts + templates, scheduler, model layer, metrics, store, API
+web/              single-page UI (vanilla JS)
+tests/            81 offline tests (acceptance tests from the SPEC, API, v2 features)
+docs/             design documents (see below)
+examples/         example configs
+scripts/          doc converter, figure builder
+```
+
+**Documents.** English:
+- `SPEC-naming-game-v1.0.md`: the approved design;
+- `SPEC-naming-game-v2.0-draft.md`: the revised design, step 1 implemented;
+- `IMPLEMENTATION_NOTES.md`: choices, verification, known gaps. Read before preregistering.
+
+In Chinese:
+- the experiment guide;
+- the review response;
+- a plain-language explainer on emergence.
+
+## Background
+
+- **Paradigm:** Flint Ashery, Aiello & Baronchelli (2025), *Emergent social conventions and collective bias in LLM populations*, Science Advances.
+- **The critique this design answers:** Barrie & Törnberg (2025), *Emergent LLM behaviors are observationally equivalent to data leakage*, arXiv:2505.23796.
+- **Why the design separates interaction from priors:**
+  - nonsense labels;
+  - replayed-partner controls;
+  - no-reward rooms;
+  - strict prompt audits.
+- **Provenance:** the provider layer and logging conventions follow [concordia-sim-builder](https://github.com/ngstcf/concordia-sim-builder) (Apache-2.0). The code is a rewrite and does not depend on Concordia.
+
+Author: Yuhan (UCSB).

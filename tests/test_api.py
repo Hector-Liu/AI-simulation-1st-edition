@@ -5,14 +5,14 @@ from naming_game import store
 from naming_game.api import app
 
 client = TestClient(app)
-BASE = {"experiment_id": "no_reward_convergence", "seed": 1, "label_set_id": "L1", "n_agents": 12,
+BASE = {"experiment_id": "no_reward_convergence", "seed": 1, "label_set_id": "P1", "n_agents": 12,
         "n_rounds": 5, "reward_mode": "none", "feedback_mode": "choices_only"}
 
 
 def test_meta_and_index():
     assert client.get("/api/health").json() == {"ok": True}
     m = client.get("/api/meta").json()
-    assert set(m["label_sets"]) >= {"L1", "L2", "L3"}
+    assert set(m["label_sets"]) >= {"P1", "P2", "P3"} and "L1" not in m["label_sets"]
     assert "has_key" in m["providers"]["anthropic"]
     assert "sk-" not in client.get("/api/meta").text  # never returns key values
     assert client.get("/").status_code == 200
@@ -70,11 +70,11 @@ def test_transcripts_match_interactions(tmp_path):
 
 
 def test_models_catalog_and_default(tmp_path, monkeypatch):
-    import naming_game.api as api_mod
-    monkeypatch.setattr(api_mod, "LOCAL_SETTINGS", tmp_path / "local_settings.json")
+    from naming_game import local_settings
+    monkeypatch.setattr(local_settings, "PATH", tmp_path / "local_settings.json")
     m = client.get("/api/meta").json()
     ids = [x["id"] for x in m["claude_models"]]
     assert "claude-haiku-4-5" in ids and m["default_model"] == "claude-haiku-4-5"
     assert client.post("/api/settings/default-model", json={"model_id": "claude-sonnet-5"}).json()["ok"]
     assert client.get("/api/meta").json()["default_model"] == "claude-sonnet-5"
-    assert client.post("/api/settings/default-model", json={"model_id": "gpt-4o"}).status_code == 400
+    assert client.post("/api/settings/default-model", json={"model_id": "bad id!"}).status_code == 400

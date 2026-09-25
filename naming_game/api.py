@@ -18,26 +18,20 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import runner
+from . import local_settings, runner
 from .config import ExperimentConfig
-from .labels import get_labels, load_label_sets
-from .llm import (CLAUDE_MODELS, ENV_PATH, PRICING, PROVIDER_ENV, AnthropicModel, FatalModelError,
-                  RetryableError, api_key, load_env)
+from .labels import (check_label_set, delete_custom_label_set, generate_label_set, get_labels,
+                     load_label_sets, save_custom_label_set)
+from .llm import (CLAUDE_MODELS, ENV_PATH, PROVIDER_ENV, FatalModelError, RetryableError, api_key, load_env,
+                  make_model)
 from .metrics import choice_model_rows
+from .priors import derive_prior
+from .rooms import ROOM_ORDER, ROOMS
 from .store import RunStore, find_run, list_runs, sanitize
 from .transcript import dyad_rows, transcript_csv, transcript_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
-LOCAL_SETTINGS = ROOT / "local_settings.json"  # gitignored per-machine preferences
-DEFAULT_MODEL = "claude-haiku-4-5"
-
-
-def _local_settings() -> dict:
-    try:
-        return json.loads(LOCAL_SETTINGS.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
 
 app = FastAPI(title="Naming Game Simulator", version="1.0")
 
@@ -69,44 +63,246 @@ def health():
     return {"ok": True}
 
 
+def _label_set_usage() -> dict:
+    used = {}
+    for r in list_runs():
+        used[r.get("label_set_id")] = used.get(r.get("label_set_id"), 0) + 1
+    return used
+
+
 @app.get("/api/meta")
 def meta():
     load_env()
+    st = local_settings.load()
     return _json({
-        "label_sets": load_label_sets(),
+        "label_sets": load_label_sets(include_legacy=False),
+        "rooms": {k: ROOMS[k] for k in ROOM_ORDER},
         "providers": {p: {"env": env, "has_key": api_key(p) is not None} for p, env in PROVIDER_ENV.items()},
         "claude_models": CLAUDE_MODELS,
-        "default_model": _local_settings().get("default_model", DEFAULT_MODEL),
-        "pricing": PRICING,
+        "default_model": st.get("default_model", local_settings.DEFAULT_MODEL),
+        "default_temperature": local_settings.DEFAULT_TEMPERATURE,
+        "openai_models": st.get("openai_models", []),
+        "pricing_overrides": st.get("pricing", {}),
         "env_path": str(ENV_PATH),
     })
 
 
 class DefaultModelBody(BaseModel):
     model_id: str
+    provider: str = "anthropic"
 
 
 @app.post("/api/settings/default-model")
 def set_default_model(body: DefaultModelBody):
-    if not re.fullmatch(r"claude-[a-z0-9\-\.]+", body.model_id):
-        raise HTTPException(400, "not a Claude model id")
-    st = _local_settings()
-    st["default_model"] = body.model_id
-    LOCAL_SETTINGS.write_text(json.dumps(st, indent=2) + "\n")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\-\._:]{1,80}", body.model_id):
+        raise HTTPException(400, "not a valid model id")
+    local_settings.update(default_model=body.model_id)
     return {"ok": True, "default_model": body.model_id}
+
+
+class OpenAIModelBody(BaseModel):
+    model_id: str
+    price_in: float | None = None
+    price_out: float | None = None
+
+
+@app.post("/api/settings/openai-model")
+def add_openai_model(body: OpenAIModelBody):
+    """Remember an OpenAI model id (and optionally its price) for the model menus."""
+    mid = body.model_id.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\-\._:]{1,80}", mid):
+        raise HTTPException(400, "not a valid model id")
+    st = local_settings.load()
+    models = [m for m in st.get("openai_models", []) if m != mid] + [mid]
+    pricing = st.get("pricing", {})
+    if body.price_in is not None and body.price_out is not None:
+        pricing[mid] = [body.price_in, body.price_out]
+    local_settings.update(openai_models=models, pricing=pricing)
+    return {"ok": True}
+
+
+@app.delete("/api/settings/openai-model/{model_id}")
+def remove_openai_model(model_id: str):
+    st = local_settings.load()
+    local_settings.update(openai_models=[m for m in st.get("openai_models", []) if m != model_id])
+    return {"ok": True}
+
+
+class PriceBody(BaseModel):
+    model_id: str
+    price_in: float
+    price_out: float
+
+
+@app.post("/api/settings/pricing")
+def set_price(body: PriceBody):
+    st = local_settings.load()
+    pricing = st.get("pricing", {})
+    pricing[body.model_id] = [body.price_in, body.price_out]
+    local_settings.update(pricing=pricing)
+    return {"ok": True}
 
 
 @app.post("/api/models/test")
 def test_model(body: DefaultModelBody):
     """One tiny real call (a few tokens) to check the key and the model id."""
+    from .config import ModelSpec
     try:
-        m = AnthropicModel(body.model_id, None, 8)
+        m = make_model(ModelSpec(provider=body.provider, model_id=body.model_id, max_tokens_cap=8))
         res = m.complete("Reply with only the word: ready", 0)
     except (FatalModelError, RetryableError) as ex:
         return _json({"ok": False, "error": str(ex)})
+    except Exception as ex:  # noqa: BLE001
+        return _json({"ok": False, "error": f"{type(ex).__name__}: {ex}"})
     return _json({"ok": True, "reply": res.text, "model_version": res.model_version,
                   "tokens_in": res.tokens_in, "tokens_out": res.tokens_out, "latency_ms": res.latency_ms,
                   "effective_temperature": res.effective_temperature})
+
+
+# ------------------------------------------------------------- label sets --
+@app.get("/api/label-sets")
+def label_sets():
+    used = _label_set_usage()
+    out = []
+    for sid, e in load_label_sets(include_legacy=True).items():
+        chk = check_label_set(e["labels"])
+        out.append({"id": sid, "name": e.get("name", sid), "kind": e["kind"], "labels": e["labels"],
+                    "hash": e["hash"], "runs": used.get(sid, 0), "note": e.get("note", ""),
+                    "created_at": e.get("created_at") or e.get("frozen_at"),
+                    "locked": e["kind"] != "custom" or used.get(sid, 0) > 0,
+                    "errors": chk["errors"], "warnings": chk["warnings"]})
+    order = {"preset": 0, "custom": 1, "legacy": 2}
+    out.sort(key=lambda x: (order.get(x["kind"], 3), x["id"]))
+    return _json(out)
+
+
+class LabelSetBody(BaseModel):
+    name: str
+    labels: list[str]
+    note: str = ""
+
+
+@app.post("/api/label-sets/check")
+def label_set_check(body: LabelSetBody):
+    return _json(check_label_set([x.strip() for x in body.labels if x.strip()]))
+
+
+@app.post("/api/label-sets/generate")
+def label_set_generate(size: int = 10, seed: int | None = None):
+    import random
+    if not (2 <= size <= 20):
+        raise HTTPException(400, "size must be 2-20")
+    taken = {x.lower() for e in load_label_sets().values() for x in e["labels"]}
+    seed = seed if seed is not None else random.SystemRandom().randrange(10 ** 6)
+    return {"labels": generate_label_set(seed, size, "CVCV", exclude=taken), "seed": seed}
+
+
+@app.post("/api/label-sets")
+def label_set_create(body: LabelSetBody):
+    try:
+        sid = save_custom_label_set(body.name, body.labels, note=body.note)
+    except ValueError as ex:
+        raise HTTPException(422, detail=[str(ex)]) from ex
+    return {"ok": True, "id": sid}
+
+
+@app.put("/api/label-sets/{set_id}")
+def label_set_update(set_id: str, body: LabelSetBody):
+    sets = load_label_sets()
+    if set_id not in sets or sets[set_id]["kind"] != "custom":
+        raise HTTPException(400, "only custom label sets can be edited; clone a preset instead")
+    if _label_set_usage().get(set_id):
+        raise HTTPException(409, "this label set has runs, so it is locked; clone it to make changes")
+    try:
+        save_custom_label_set(body.name, body.labels, set_id=set_id, note=body.note)
+    except ValueError as ex:
+        raise HTTPException(422, detail=[str(ex)]) from ex
+    return {"ok": True, "id": set_id}
+
+
+@app.delete("/api/label-sets/{set_id}")
+def label_set_delete(set_id: str):
+    sets = load_label_sets()
+    if set_id not in sets or sets[set_id]["kind"] != "custom":
+        raise HTTPException(400, "only custom label sets can be deleted")
+    if _label_set_usage().get(set_id):
+        raise HTTPException(409, "this label set has runs, so it cannot be deleted")
+    delete_custom_label_set(set_id)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------- study plan --
+@app.get("/api/plan")
+def plan():
+    """Every run grouped by room, with the run-level numbers the Study Plan shows."""
+    runs = list_runs()
+    rooms = {k: {**ROOMS[k], "id": k, "runs": []} for k in ROOM_ORDER}
+    other = []
+    for r in runs:
+        s = r.get("summary") or {}
+        row = {k: r.get(k) for k in ("run_id", "status", "label_set_id", "seed", "n_agents", "n_rounds", "rounds_done",
+                                     "provider", "model", "temperature", "phase", "started_at", "leakage_passed",
+                                     "cell_id", "model_versions")}
+        row.update(entropy_final=s.get("entropy_final"), consensus=s.get("consensus"),
+                   winner=s.get("final_modal_label"), winner_share=s.get("final_modal_share"),
+                   invalid_rate=s.get("invalid_rate"), T_consensus_round=s.get("T_consensus_round"))
+        (rooms[r["cell_id"]]["runs"] if r.get("cell_id") in rooms else other).append(row)
+    return _json({"rooms": rooms, "order": ROOM_ORDER, "other_runs": len(other)})
+
+
+@app.get("/api/plan/room/{room_id}/curves")
+def room_curves(room_id: str):
+    out = []
+    for r in list_runs():
+        if r.get("cell_id") != room_id:
+            continue
+        pop = RunStore(r["dir"]).read_csv("population.csv")
+        out.append({"run_id": r["run_id"], "label_set_id": r["label_set_id"], "seed": r["seed"],
+                    "model": r.get("model"), "phase": r.get("phase"),
+                    "round": [int(p["round"]) for p in pop], "entropy": [p["state_entropy_norm"] for p in pop],
+                    "modal_share": [p["state_modal_share"] for p in pop]})
+    return _json(out)
+
+
+class PlanBody(BaseModel):
+    spec: dict
+    confirm_cost: bool = False
+
+
+def _plan(spec: dict):
+    try:
+        return runner.plan_configs(spec)
+    except runner.PlanError as ex:
+        raise HTTPException(422, detail=[str(ex)]) from ex
+    except ValidationError as ex:
+        raise HTTPException(422, detail=_errors(ex)) from ex
+
+
+@app.post("/api/plan/estimate")
+def plan_estimate(body: PlanBody):
+    cfgs, notes = _plan(body.spec)
+    est = runner.estimate_matrix(cfgs)
+    notes_list = [n for n in notes if "room" in n]
+    return _json({**est, "priors": notes_list, "model_notes": runner.estimate(cfgs[0])["model_notes"] if cfgs else [],
+                  "runs": [{"cell_id": c.cell_id, "label_set_id": c.label_set_id, "seed": c.seed} for c in cfgs]})
+
+
+@app.post("/api/plan/launch")
+def plan_launch(body: PlanBody):
+    cfgs, notes = _plan(body.spec)
+    est = runner.estimate_matrix(cfgs)
+    if est["paid"] and not body.confirm_cost:
+        raise HTTPException(409, detail=["These runs make paid model calls. Confirm the cost estimate first.", est])
+    job = runner.jobs.start(cfgs, kind="plan")
+    job.emit({"type": "schedule", "order": [{"run_id": c.run_id, "cell_id": c.cell_id, "label_set_id": c.label_set_id,
+                                             "seed": c.seed} for c in cfgs], "notes": notes})
+    return {"job_id": job.id, "run_ids": [c.run_id for c in cfgs], "estimate": est}
+
+
+@app.get("/api/priors")
+def prior(label_set_id: str, room: str, provider: str, model_id: str, temperature: float | None = None,
+          phase: str = "pilot"):
+    return _json(derive_prior(label_set_id, room, provider, model_id, temperature, phase))
 
 
 class KeyBody(BaseModel):

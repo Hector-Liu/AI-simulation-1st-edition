@@ -10,6 +10,11 @@ Research software for Yuhan (UCSB): LLM naming-game experiments on convention em
 - Frozen label sets (`naming_game/data/label_sets.json`) must never be regenerated once runs exist.
 - Reply to Yuhan in Chinese. Keep code, prompts and specs in English.
 
+## Structure to know
+- Rooms (study conditions) live in `naming_game/rooms.py`; a config's `cell_id` must match its room signature.
+- Label sets: presets P1–P3 and legacy L1–L3 in `naming_game/data/label_sets.json` (frozen); custom sets in `user_data/label_sets.json`.
+- Matched priors for replay rooms: `naming_game/priors.py`. Confirmatory runs may only use pilot-derived priors.
+
 ## Run
 - App: `./start.sh` (or double-click `一键启动.command`) → http://127.0.0.1:8765
 - Tests: `venv/bin/python -m pytest tests -q`

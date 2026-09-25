@@ -1,4 +1,64 @@
 {
+  "P1": {
+    "labels": [
+      "Bagu",
+      "Difa",
+      "Feki",
+      "Gevi",
+      "Kofa",
+      "Mipi",
+      "Noza",
+      "Rozo",
+      "Tesu",
+      "Vuba"
+    ],
+    "hash": "af7f4b2a4df6ecc11a29c86a1a27bd284a234b0b0417e69019b00775258d3240",
+    "pattern": "CVCV",
+    "kind": "preset",
+    "name": "Preset 1",
+    "frozen_at": "2026-09-24",
+    "note": "Generated (seed 7, screened: English, names, brands, curated multilingual list), then picked by hand. Human review still recommended."
+  },
+  "P2": {
+    "labels": [
+      "Begu",
+      "Daso",
+      "Fizu",
+      "Gafu",
+      "Kuvi",
+      "Ledu",
+      "Mufi",
+      "Nupi",
+      "Sovi",
+      "Tafo"
+    ],
+    "hash": "1c1ee2c1b530b105882dfacacba0298c8d700b20768def88f11db8a5059abf03",
+    "pattern": "CVCV",
+    "kind": "preset",
+    "name": "Preset 2",
+    "frozen_at": "2026-09-24",
+    "note": "Generated (seed 7, screened: English, names, brands, curated multilingual list), then picked by hand. Human review still recommended."
+  },
+  "P3": {
+    "labels": [
+      "Bifu",
+      "Depu",
+      "Fuvo",
+      "Ginu",
+      "Kugu",
+      "Meku",
+      "Nevi",
+      "Razu",
+      "Sipu",
+      "Zalu"
+    ],
+    "hash": "6492953d7174bd40b10537de26ec3072200b50048d840d448ebf1524eb4b5c85",
+    "pattern": "CVCV",
+    "kind": "preset",
+    "name": "Preset 3",
+    "frozen_at": "2026-09-24",
+    "note": "Generated (seed 7, screened: English, names, brands, curated multilingual list), then picked by hand. Human review still recommended."
+  },
   "L1": {
     "labels": [
       "Laba",
@@ -14,7 +74,9 @@
     ],
     "hash": "f626bcf8b9ce2aa5e318d7f1a066a5ac1041d774bba92fb8db69b48f4b1f35af",
     "generator_seed": 20260924,
-    "pattern": "CVCV"
+    "pattern": "CVCV",
+    "kind": "legacy",
+    "note": "v1 label set; kept read-only so earlier runs stay readable. Not offered for new runs."
   },
   "L2": {
     "labels": [
@@ -31,7 +93,9 @@
     ],
     "hash": "0d8e284cf84cb46dedaa4b8743bb75016ed425d99b7697fb79055f51160994d3",
     "generator_seed": 20260925,
-    "pattern": "CVCV"
+    "pattern": "CVCV",
+    "kind": "legacy",
+    "note": "v1 label set; kept read-only so earlier runs stay readable. Not offered for new runs."
   },
   "L3": {
     "labels": [
@@ -48,6 +112,8 @@
     ],
     "hash": "fa3662f192281604b56fbf36c7be264acf366986f2d7fc36ba2e7f06091769a4",
     "generator_seed": 20260926,
-    "pattern": "CVCV"
+    "pattern": "CVCV",
+    "kind": "legacy",
+    "note": "v1 label set; kept read-only so earlier runs stay readable. Not offered for new runs."
   }
 }

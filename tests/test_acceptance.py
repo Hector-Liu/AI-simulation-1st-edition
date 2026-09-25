@@ -447,7 +447,7 @@ def test_14b_single_writer_and_constructor():
 
 # ---------------------------------------------------------------- 15 ------
 def test_15_label_hygiene():
-    sets = load_label_sets()
+    sets = {k: v for k, v in load_label_sets().items() if v["kind"] == "preset"}
     assert len(sets) >= 3
     seen = set()
     for sid, entry in sets.items():

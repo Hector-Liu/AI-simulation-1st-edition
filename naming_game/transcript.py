@@ -12,6 +12,7 @@ import json
 from .store import RunStore
 
 DYAD_COLUMNS = ["round", "dyad_id", "agent_a", "choice_a", "agent_b", "choice_b", "match", "void",
+                "partner_source", "shown_to_a", "shown_to_b", "match_a", "match_b",
                 "points_a", "points_b", "policy_a", "policy_b", "minority_a", "minority_b",
                 "raw_output_a", "raw_output_b", "attempts_a", "attempts_b", "within_block"]
 
@@ -33,6 +34,9 @@ def dyad_rows(store: RunStore, round_from: int | None = None, round_to: int | No
             "agent_a": a["agent_id"], "choice_a": a["choice"] or "(invalid)",
             "agent_b": b["agent_id"] if b else "", "choice_b": (b["choice"] or "(invalid)") if b else "",
             "match": a["match"], "void": a["void"],
+            "partner_source": a.get("partner_source") or "actual",
+            "shown_to_a": a.get("partner_choice", ""), "shown_to_b": b.get("partner_choice", "") if b else "",
+            "match_a": a["match"], "match_b": b["match"] if b else "",
             "points_a": a["points"], "points_b": b["points"] if b else "",
             "policy_a": a["policy"], "policy_b": b["policy"] if b else "",
             "minority_a": a["is_minority"], "minority_b": b["is_minority"] if b else "",
@@ -70,7 +74,9 @@ def transcript_text(store: RunStore, include_prompts: bool = False) -> str:
         f"labels: {' '.join(man.get('labels', []))}",
         f"status: {man.get('status')} | config_hash {cfg.get('config_hash', '')[:16]}",
         "",
-        "Each line: agent (choice) × agent (choice) → outcome. 'void' = an invalid answer after retry;",
+        "Each line: agent (choice) × agent (choice) → outcome. 'void' = an invalid answer after retry;"
+        if cfg.get("partner_source") != "prior_replay" else
+        "Replayed-partner run: each agent was shown a label drawn from the prior, not its partner's choice.",
         "a void pairing writes nothing to either agent's memory.",
     ]
     current = None
@@ -81,7 +87,13 @@ def transcript_text(store: RunStore, include_prompts: bool = False) -> str:
                 lines.append(_pop_line(pop[current]))
             lines += ["", f"── Round {rd} " + "─" * 40]
             current = rd
-        if d["agent_b"]:
+        if d["agent_b"] and d["partner_source"] == "prior_replay":
+            def side(agent, choice, shown, m):
+                res = "void" if d["void"] == "True" else ("same" if m == "True" else "different")
+                return f"{agent} chose {choice}, was shown {shown} → {res}"
+            lines.append(f"  {side(d['agent_a'], d['choice_a'], d['shown_to_a'], d['match_a'])} | "
+                         f"{side(d['agent_b'], d['choice_b'], d['shown_to_b'], d['match_b'])}")
+        elif d["agent_b"]:
             outcome = "VOID" if d["void"] == "True" else ("same label" if d["match"] == "True" else "different labels")
             pts = f"  points {d['points_a']}/{d['points_b']}" if d["points_a"] not in ("", None) else ""
             lines.append(f"  {d['agent_a']} ({d['choice_a']}) × {d['agent_b']} ({d['choice_b']}) → {outcome}{pts}")

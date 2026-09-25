@@ -1,0 +1,14 @@
+{
+  "own_and_partner.choices_only": "- {k}: you chose {self}; the other participant chose {partner}.",
+  "own_and_partner.match_indicator": "- {k}: you chose {self}; the other participant chose {partner} ({match_text}).",
+  "own_and_partner.numeric_score": "- {k}: you chose {self}; the other participant chose {partner}; you received {points} points.",
+  "own_and_partner.choices_only.nonsocial": "- {k}: you chose {self}; the reference label shown was {partner}.",
+  "own_only.choices_only": "- {k}: you chose {self}.",
+  "own_only.numeric_score": "- {k}: you chose {self}; you received {points} points.",
+  "match_text.same": "same label",
+  "match_text.different": "different labels",
+  "k.latest": "Latest interaction",
+  "k.ago": "{n} interactions ago",
+  "cumulative_line": "Your cumulative points so far: {total}",
+  "empty_buffer": "None."
+}

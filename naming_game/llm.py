@@ -176,7 +176,7 @@ class AnthropicModel:
         import anthropic
         key = api_key("anthropic")
         if not key:
-            raise FatalModelError("ANTHROPIC_API_KEY is not set (see the Settings tab or .env)")
+            raise FatalModelError("ANTHROPIC_API_KEY is not set (add it on the API & Models page)")
         self._anthropic = anthropic
         self._client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=timeout)
         self.model_id = model_id
@@ -196,7 +196,9 @@ class AnthropicModel:
         params = {"model": self.model_id, "max_tokens": max_tokens, "messages": messages, **params_extra}
         eff_t = PROVIDER_DEFAULT_TEMPERATURE["anthropic"] if self.profile["temperature"] else None
         if self.temperature is not None and self.profile["temperature"]:
-            params["temperature"] = self.temperature
+            # anthropic>=1.0 removed sampling parameters from the create() signature;
+            # models that still accept them get the value through extra_body.
+            params["extra_body"] = {"temperature": self.temperature}
             eff_t = self.temperature
         if self.profile["thinking"] == "disable":
             params["thinking"] = {"type": "disabled"}
@@ -226,7 +228,7 @@ class OpenAICompatModel:
         import openai
         key = api_key(provider)
         if not key:
-            raise FatalModelError(f"{PROVIDER_ENV[provider]} is not set (see the Settings tab or .env)")
+            raise FatalModelError(f"{PROVIDER_ENV[provider]} is not set (add it on the API & Models page)")
         base_url = "https://api.deepseek.com" if provider == "deepseek" else None
         self._openai = openai
         self._client = openai.OpenAI(api_key=key, base_url=base_url, max_retries=0, timeout=timeout)

@@ -13,7 +13,7 @@ from naming_game.scheduler import build_run  # noqa: E402
 
 def make_config(**overrides) -> ExperimentConfig:
     d = dict(experiment_id="no_reward_convergence", seed=7, label_set_id="L1", n_agents=12, n_rounds=20,
-             reward_mode="none", feedback_mode="choices_only",
+             reward_mode="none", feedback_mode="choices_only", phase="test",
              model={"provider": "mock", "model_id": "mock", "mock_mode": "uniform"})
     d.update(overrides)
     return ExperimentConfig(**d)

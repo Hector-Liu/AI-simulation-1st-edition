@@ -23,10 +23,10 @@ from .config import ExperimentConfig
 from .labels import get_labels, guard_prompt, label_set_hash
 from .llm import FatalModelError, RetryableError, call_seed, make_model, model_notes
 from .parser import parse_label
-from .prompts import TEMPLATE_VERSION, build_agent_prompt, template_hashes
+from .prompts import build_agent_prompt, template_hashes
 from .store import ROOT, RunStore
 
-STREAMS = {"pairing": 1, "order": 2, "minority": 3, "tiebreak": 4, "policy": 5}
+STREAMS = {"pairing": 1, "order": 2, "minority": 3, "tiebreak": 4, "policy": 5, "replay": 6}
 
 
 def rng_for(seed: int, stream: str, *keys: int) -> np.random.Generator:
@@ -38,6 +38,10 @@ class LeakageError(RuntimeError):
 
 
 class RunCancelled(RuntimeError):
+    pass
+
+
+class ModelDrift(RuntimeError):
     pass
 
 
@@ -99,24 +103,40 @@ def pair_round(config: ExperimentConfig, round_idx: int) -> list[tuple]:
 
 
 # ------------------------------------------------------------- commit ------
-def commit_dyad(dyad: Dyad, choices: dict, config: ExperimentConfig, round_idx: int) -> dict:
+def commit_dyad(dyad: Dyad, choices: dict, config: ExperimentConfig, round_idx: int,
+                shown: dict | None = None) -> dict:
     """The ONLY memory writer. Appends one record to each participant's own
     buffer (if memory is on) and updates their own points (if reward is on).
-    Touches nothing else. Returns {agent_id: points or None}."""
+    Touches nothing else. Returns {agent_id: points or None}.
+
+    `shown` maps agent_id -> the partner label that agent is shown. By default
+    it is the partner's real choice; with partner_source = prior_replay it is
+    a label drawn from the prior, and match/points are computed against it."""
     a, b = dyad.members
     ca, cb = choices[a.agent_id], choices[b.agent_id]
-    match = ca == cb
-    points = None
-    if config.reward_mode == "local_match":
-        points = config.payoff.match if match else config.payoff.mismatch
+    shown = shown or {a.agent_id: cb, b.agent_id: ca}
     out = {}
-    for me, other, mine, theirs in ((a, b, ca, cb), (b, a, cb, ca)):
+    for me, other, mine in ((a, b, ca), (b, a, cb)):
+        theirs = shown[me.agent_id]
+        points = None
+        if config.reward_mode == "local_match":
+            points = config.payoff.match if mine == theirs else config.payoff.mismatch
         if config.memory_on:
             me.buffer.append({"round": round_idx, "stimulus_id": "s0", "self_label": mine,
                               "partner_label": theirs, "partner_id": other.agent_id, "points": points})
         if points is not None:
             me.cum_points += points
         out[me.agent_id] = points
+    return out
+
+
+def replayed_labels(config: ExperimentConfig, labels, p0, round_idx: int, agent_indices) -> dict:
+    """Prior replay: one label per agent drawn from p0, independent of every
+    other agent's choice (SPEC v2 §3.3a)."""
+    out = {}
+    for idx in agent_indices:
+        rng = rng_for(config.seed, "replay", round_idx, idx)
+        out[idx] = labels[rng.choice(len(labels), p=p0)]
     return out
 
 
@@ -172,7 +192,11 @@ class Simulation:
         self.round_choice_history: list[list[str]] = []
         self.tracker = metrics.ConsensusTracker(config.consensus_window)
         self.minority_active = False
+        self.minority_released = False
         self.minority_ids: set = set()
+        self.pinned_version = None
+        if config.model is not None and config.model.pin_version not in (None, "auto"):
+            self.pinned_version = config.model.pin_version
         self.prompts_checked = 0
         self.guard_hits: list = []
         self.model_versions: set = set()
@@ -182,22 +206,37 @@ class Simulation:
     # ---- minority -------------------------------------------------------
     def _maybe_activate_minority(self, t: int) -> list[dict]:
         cm = self.config.committed_minority
-        if cm is None or self.minority_active:
+        if cm is None:
+            return []
+        if self.minority_active and cm.end_round is not None and t >= cm.end_round and not self.minority_released:
+            self._release_minority()
+            return [{"round": t, "event": "minority_released", "agent_ids": sorted(self.minority_ids)}]
+        if self.minority_active or self.minority_released:
             return []
         due = (t >= cm.start_round) if cm.start_rule == "round" else (self.tracker.reached or t >= cm.start_round)
         if not due:
             return []
         rng = rng_for(self.config.seed, "minority", t)
         k = int(round(cm.frac * self.config.n_agents))
-        recent = [c for rnd in self.round_choice_history[-20:] for c in rnd if c]
-        counts = {lab: recent.count(lab) for lab in self.labels}
-        low = min(counts.values())
-        cands = [lab for lab in self.labels if counts[lab] == low]
+        if cm.label_rule == "least_used_20":
+            recent = [c for rnd in self.round_choice_history[-20:] for c in rnd if c]
+            counts = {lab: recent.count(lab) for lab in self.labels}
+            low = min(counts.values())
+            cands = [lab for lab in self.labels if counts[lab] == low]
+        else:  # random_nonmodal
+            modal = metrics.modal(list(self.state.values()), f"{self.config.seed}|{t}|minority")[0]
+            cands = [lab for lab in self.labels if lab != modal]
         label = cands[rng.integers(len(cands))]
         chosen = sorted(int(i) for i in rng.choice(self.config.n_agents, size=k, replace=False))
         self._apply_minority([self.agents[i].agent_id for i in chosen], label)
         return [{"round": t, "event": "minority_activated", "agent_ids": sorted(self.minority_ids),
                  "label": label, "reason": "consensus" if self.tracker.reached else "start_round"}]
+
+    def _release_minority(self):
+        for aid in self.minority_ids:
+            ag = self.agents[self.index[aid]]
+            ag.policy, ag.fixed_label, ag.is_minority = self.config.policy_default, None, False
+        self.minority_released = True
 
     def _apply_minority(self, agent_ids, label):
         for aid in agent_ids:
@@ -230,6 +269,12 @@ class Simulation:
             parsed = parse_label(raw, self.labels)
             if res.model_version:
                 self.model_versions.add(res.model_version)
+                pin = self.config.model.pin_version if self.config.model else None
+                if pin is not None:
+                    if self.pinned_version is None:
+                        self.pinned_version = res.model_version
+                    elif res.model_version != self.pinned_version:
+                        raise ModelDrift(f"model version changed from {self.pinned_version} to {res.model_version}")
             self.effective = {"temperature": res.effective_temperature, "max_tokens": res.effective_max_tokens,
                               **({"request_params": res.request_params} if res.request_params else {})}
             calls.append({"call_id": f"{t}-{agent_id}-{attempt}", "round": t, "agent_id": agent_id,
@@ -295,8 +340,15 @@ class Simulation:
             void = any(c is None for c in choices.values())
             n_invalid += sum(1 for c in choices.values() if c is None)
             points = {}
+            shown = None
+            if len(d.members) == 2:
+                if cfg.partner_source == "prior_replay":
+                    rep_ = replayed_labels(cfg, self.labels, self.p0, t, [self.index[a] for a in ids])
+                    shown = {a: rep_[self.index[a]] for a in ids}
+                else:
+                    shown = {ids[0]: choices[ids[1]], ids[1]: choices[ids[0]]}
             if len(d.members) == 2 and not void:
-                points = commit_dyad(d, choices, cfg, t)
+                points = commit_dyad(d, choices, cfg, t, shown)
             n_void += int(void)
             for ag in d.members:
                 aid = ag.agent_id
@@ -306,7 +358,8 @@ class Simulation:
                 calls.extend(agent_calls)
                 prompt, order, included = rendered[aid]
                 partner = next((m for m in d.members if m.agent_id != aid), None)
-                pchoice = choices.get(partner.agent_id) if partner else None
+                pactual = choices.get(partner.agent_id) if partner else None
+                pchoice = shown.get(aid) if (partner and shown) else None
                 if choice:
                     self.state[aid] = choice
                 round_choices[aid] = choice
@@ -316,6 +369,8 @@ class Simulation:
                     "dyad_id": d.dyad_id, "agent_id": aid, "partner_id": partner.agent_id if partner else "",
                     "policy": ag.policy, "is_minority": ag.is_minority, "stimulus_id": "s0",
                     "choice": choice or "", "partner_choice": (pchoice or "") if partner else "",
+                    "partner_actual_choice": (pactual or "") if partner else "",
+                    "partner_source": cfg.partner_source if partner else "",
                     "match": (choice == pchoice) if (partner and not void) else "",
                     "void": void, "valid": choice is not None, "attempts": attempts,
                     "points": points.get(aid), "cum_points": ag.cum_points,
@@ -331,7 +386,7 @@ class Simulation:
         t_pc_mean = sum(self.participations) / cfg.n_agents
         pop = metrics.population_row(t, t_pc_mean, round_choices, self.state, prev_state, self.K,
                                      n_choices=len(round_choices), n_invalid=n_invalid, n_dyads=len(dyads),
-                                     n_void=n_void, minority_ids=self.minority_ids)
+                                     n_void=n_void, minority_ids=self.minority_ids, tie_key=f"{cfg.seed}|{t}")
         self.tracker.update(t, pop["state_modal_share"])
         self.round_rows.append(pop)
         if self.store is not None:
@@ -343,8 +398,8 @@ class Simulation:
     def _manifest_base(self) -> dict:
         cfg = self.config
         return {"run_id": cfg.run_id, "experiment_id": cfg.experiment_id, "config_hash": cfg.config_hash,
-                "schema_version": cfg.schema_version, "template_version": TEMPLATE_VERSION,
-                "template_hashes": template_hashes(), "label_set_id": cfg.label_set_id,
+                "schema_version": cfg.schema_version, "template_version": cfg.template_version,
+                "template_hashes": template_hashes(cfg.template_version), "cell_id": cfg.cell_id, "phase": cfg.phase, "label_set_id": cfg.label_set_id,
                 "label_set_hash": label_set_hash(list(self.labels)), "labels": list(self.labels),
                 "p0_used": self.p0, "git_commit": _git_commit(), "package_versions": _versions(),
                 "model_notes": model_notes(cfg.model.provider, cfg.model.model_id) if cfg.model else []}
@@ -382,6 +437,10 @@ class Simulation:
             status, error = "failed_model", str(ex)
         except RetryableError as ex:
             status, error = "failed_api", str(ex)
+        except ModelDrift as ex:
+            status, error = "failed_model_drift", str(ex)
+        except Exception as ex:  # noqa: BLE001 - record any unexpected failure on the run itself
+            status, error = "failed_error", f"{type(ex).__name__}: {ex}"
         return self._finish(status, error, last)
 
     def _finish(self, status, error, last) -> dict:
@@ -401,7 +460,7 @@ class Simulation:
             self.store.write_json("summary.json", summary)
             self.store.update_manifest(status=status, error=error, ended_at=_now(), rounds_done=last + 1,
                                        leakage_passed=leakage["passed"],
-                                       model_versions=sorted(self.model_versions),
+                                       model_versions=sorted(self.model_versions), pinned_version=self.pinned_version,
                                        effective_sampling=self.effective)
         if self.progress:
             self.progress({"type": "done", "run_id": cfg.run_id, "status": status, "error": error,
@@ -422,12 +481,15 @@ class Simulation:
         rows = store.read_csv("interactions.csv")
         events = store.read_jsonl("events.jsonl")
         act = {e["round"]: e for e in events if e.get("event") == "minority_activated"}
+        rel = {e["round"] for e in events if e.get("event") == "minority_released"}
         by_round: dict[int, list[dict]] = {}
         for r in rows:
             by_round.setdefault(int(r["round"]), []).append(r)
         for rd in sorted(by_round):
             if rd in act:
                 sim._apply_minority(act[rd]["agent_ids"], act[rd]["label"])
+            if rd in rel:
+                sim._release_minority()
             dyads: dict[int, list[dict]] = {}
             for r in by_round[rd]:
                 dyads.setdefault(int(r["dyad_id"]), []).append(r)
@@ -441,7 +503,8 @@ class Simulation:
                         round_choices.append(r["choice"])
                 if len(members) == 2 and members[0]["void"] != "True":
                     ags = tuple(sim.agents[sim.index[r["agent_id"]]] for r in members)
-                    commit_dyad(Dyad(did, ags), {r["agent_id"]: r["choice"] for r in members}, cfg, rd)
+                    shown = {r["agent_id"]: r["partner_choice"] for r in members}
+                    commit_dyad(Dyad(did, ags), {r["agent_id"]: r["choice"] for r in members}, cfg, rd, shown)
             sim.round_choice_history.append(round_choices)
         for p in store.read_csv("population.csv"):
             sim.tracker.update(int(p["round"]), float(p["state_modal_share"] or "nan"))

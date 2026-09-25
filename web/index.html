@@ -14,22 +14,104 @@
     <span>Naming Game Simulator</span>
   </div>
   <nav aria-label="Main">
-    <button data-tab="setup" class="active" aria-current="page">1 · Setup</button>
-    <button data-tab="monitor">2 · Monitor <span class="dot" id="live-dot" hidden></span></button>
-    <button data-tab="results">3 · Results</button>
+    <button data-tab="plan" class="active" aria-current="page">Study Plan</button>
+    <button data-tab="setup">Custom run</button>
+    <button data-tab="monitor">Monitor <span class="dot" id="live-dot" hidden></span></button>
+    <button data-tab="results">All runs</button>
+    <button data-tab="labels">Label sets</button>
     <button data-tab="settings">API &amp; Models</button>
   </nav>
 </header>
 
 <main id="main">
-<!-- =============================== SETUP =============================== -->
-<section id="tab-setup" class="tab active" aria-label="Setup">
+<!-- ============================== STUDY PLAN ============================== -->
+<section id="tab-plan" class="tab active" aria-label="Study plan">
+  <div class="layout">
+    <div class="plan-main">
+      <section class="card">
+        <div class="row between wrap">
+          <div><h2>Study plan</h2>
+            <p class="hint">Tick the rooms you want to run, set the details on the right, and launch. Click a room to see all of its runs and results.</p></div>
+          <div class="row wrap gap-s">
+            <div class="field inline"><label for="f-model">Model</label><select id="f-model"><option value="">All models</option></select></div>
+            <div class="field inline"><label for="f-phase">Phase</label>
+              <select id="f-phase"><option value="">All phases</option><option value="pilot">Pilot</option><option value="confirmatory">Confirmatory</option><option value="exploratory">Exploratory</option><option value="test">Test (mock)</option></select></div>
+            <button type="button" class="btn secondary small" id="plan-refresh">Refresh</button>
+          </div>
+        </div>
+
+        <h3>Main design · six rooms</h3>
+        <div class="room-grid" id="room-grid" role="grid" aria-label="Main design"></div>
+
+        <h3>Control rooms · optional, run separately</h3>
+        <p class="hint">Use these to test whether convergence needs real interaction (replayed partner) and whether the social framing matters (reference-label framing). A replay room needs a finished run of B0 or A0 on the same label set, model and temperature, because the replayed labels are drawn from that room's choices.</p>
+        <div class="control-grid" id="control-grid"></div>
+        <p class="help" id="other-runs-note"></p>
+      </section>
+
+      <section class="card" id="room-panel" hidden></section>
+    </div>
+
+    <aside class="side" aria-label="Launch runs">
+      <section class="card" id="launcher">
+        <h2>Run selected rooms</h2>
+        <div id="sel-rooms" class="chips" aria-live="polite"></div>
+        <p class="help" id="sel-hint">Tick one or more rooms in the plan (the "Select" box on each room).</p>
+
+        <fieldset class="field">
+          <legend>Label sets</legend>
+          <div id="ls-checks" class="check-list"></div>
+          <p class="help"><a href="#" data-goto="labels">Create or manage label sets</a></p>
+        </fieldset>
+
+        <div class="grid two">
+          <div class="field"><label for="p-nseeds">Runs per label set</label><input id="p-nseeds" type="number" min="1" max="100" value="1">
+            <p class="help">Each run uses its own seed.</p></div>
+          <div class="field"><label for="p-seed0">First seed</label><input id="p-seed0" type="number" min="0" value="0"></div>
+          <div class="field"><label for="p-n">Agents</label><select id="p-n"><option>12</option><option selected>24</option><option>48</option></select></div>
+          <div class="field"><label for="p-rounds">Rounds</label><input id="p-rounds" type="number" min="1" value="300"></div>
+          <div class="field"><label for="p-H">Memory length (H)</label><input id="p-H" type="number" min="1" value="5">
+            <p class="help">Rooms without memory ignore it.</p></div>
+          <div class="field"><label for="p-T">Temperature</label><input id="p-T" type="number" step="0.1" min="0.1" value="1.0">
+            <p class="help" id="p-T-note"></p></div>
+        </div>
+        <div class="field"><label for="p-model">Model</label><select id="p-model"></select><p class="help" id="p-model-note"></p></div>
+
+        <fieldset class="field">
+          <legend>Phase</legend>
+          <div class="seg" role="radiogroup" id="p-phase">
+            <button type="button" data-v="pilot" class="active" role="radio" aria-checked="true">Pilot</button>
+            <button type="button" data-v="confirmatory" role="radio" aria-checked="false">Confirmatory</button>
+            <button type="button" data-v="exploratory" role="radio" aria-checked="false">Exploratory</button>
+          </div>
+          <p class="help">Pilot and confirmatory data are kept apart. Mock runs are always "test".</p>
+        </fieldset>
+
+        <fieldset class="field" id="prior-box" hidden>
+          <legend>Prior for replayed partners</legend>
+          <label class="check"><input type="radio" name="prior_mode" value="derive" checked> Derive from room B0 / A0 (recommended)</label>
+          <label class="check"><input type="radio" name="prior_mode" value="uniform"> Uniform (all labels equally likely)</label>
+          <div id="prior-status" class="help"></div>
+        </fieldset>
+
+        <label class="check"><input type="checkbox" id="p-pin" checked> Stop a run if the model version changes</label>
+
+        <div id="p-est" class="stats"></div>
+        <div id="p-msg" role="status" aria-live="polite"></div>
+        <label class="check confirm" id="p-confirm-wrap" hidden><input type="checkbox" id="p-confirm"> I have checked the cost estimate and allow paid API calls.</label>
+        <div class="actions"><button type="button" id="p-launch" class="btn primary" disabled>Launch</button></div>
+      </section>
+    </aside>
+  </div>
+</section>
+
+<!-- ============================== CUSTOM RUN ============================== -->
+<section id="tab-setup" class="tab" aria-label="Custom run">
   <div class="layout">
     <form id="cfg" class="steps" novalidate onsubmit="return false">
-
       <section class="card step" aria-labelledby="s1">
         <div class="step-head"><span class="num">1</span><div><h2 id="s1">Start from a condition</h2>
-          <p class="hint">Pick the cell of the design you want to run. Every setting below is filled in for you; change only what you need.</p></div></div>
+          <p class="hint">For single runs with full control over every setting. For the planned design, use the Study Plan. A run whose settings match a room is counted in that room.</p></div></div>
         <div id="presets" class="presets"></div>
         <p class="hint" id="preset-state"></p>
       </section>
@@ -40,11 +122,8 @@
         <div class="grid">
           <div class="field" data-field="n_agents"><label for="n_agents">Number of agents</label>
             <select id="n_agents" name="n_agents"><option>12</option><option selected>24</option><option>48</option><option value="20">20 (calibration only)</option></select></div>
-          <div class="field" data-field="n_rounds"><label for="n_rounds">Rounds</label>
-            <input id="n_rounds" name="n_rounds" type="number" min="1" value="300">
-            <p class="help">In random pairing every agent acts once per round.</p></div>
-          <div class="field" data-field="seed"><label for="seed">Seed</label>
-            <input id="seed" name="seed" type="number" min="0" value="0">
+          <div class="field" data-field="n_rounds"><label for="n_rounds">Rounds</label><input id="n_rounds" name="n_rounds" type="number" min="1" value="300"></div>
+          <div class="field" data-field="seed"><label for="seed">Seed</label><input id="seed" name="seed" type="number" min="0" value="0">
             <p class="help">Same seed + same settings = same pairings and label orders.</p></div>
           <div class="field wide" data-field="label_set_id"><label for="label_set_id">Label set</label>
             <select id="label_set_id" name="label_set_id"></select>
@@ -74,7 +153,7 @@
           <fieldset class="field wide" data-field="memory_content"><legend>What each memory record shows</legend>
             <div class="radio-cards two">
               <label><input type="radio" name="memory_content" value="own_and_partner" checked><span><b>My choice and my partner's choice</b><small>Standard naming game.</small></span></label>
-              <label><input type="radio" name="memory_content" value="own_only"><span><b>My choice only</b><small>Control: removes social information (B+1/B+2).</small></span></label>
+              <label><input type="radio" name="memory_content" value="own_only"><span><b>My choice only</b><small>Control: no social information.</small></span></label>
             </div></fieldset>
           <div class="field" data-field="memory_horizon_H"><label for="memory_horizon_H">How many past interactions (H)</label>
             <input id="memory_horizon_H" name="memory_horizon_H" type="number" min="1" value="5"></div>
@@ -94,8 +173,8 @@
           <div class="field show-reward" data-field="payoff"><label for="payoff_mismatch">Points if labels differ</label><input id="payoff_mismatch" name="payoff_mismatch" type="number" value="-50"></div>
           <div class="field" data-field="feedback_mode"><label for="feedback_mode">What memory records include</label>
             <select id="feedback_mode" name="feedback_mode">
-              <option value="choices_only">Choices only</option>
-              <option value="numeric_score">Choices and points received</option>
+              <option value="choices_only">Choices only (design default)</option>
+              <option value="numeric_score">Choices and points received (score-feedback factor)</option>
               <option value="match_indicator">Choices and "same / different" (robustness only)</option>
             </select></div>
           <label class="check show-points field" data-field="show_cumulative_points"><input type="checkbox" name="show_cumulative_points" checked> Show the agent's running point total</label>
@@ -104,28 +183,23 @@
 
       <section class="card step" aria-labelledby="s5">
         <div class="step-head"><span class="num">5</span><div><h2 id="s5">Who makes the choices</h2>
-          <p class="hint">A Claude model, an offline mock for testing, or a rule-based null model.</p></div></div>
+          <p class="hint">A language model, an offline mock for testing, or a rule-based null model.</p></div></div>
         <fieldset class="field wide" data-field="policy_default"><legend>Agent type</legend>
           <div class="radio-cards three">
-            <label><input type="radio" name="agent_kind" value="claude" checked><span><b>Claude model</b><small>Real API calls (paid).</small></span></label>
-            <label><input type="radio" name="agent_kind" value="mock"><span><b>Mock model</b><small>Offline, free. For testing only.</small></span></label>
+            <label><input type="radio" name="agent_kind" value="llm" checked><span><b>Language model</b><small>Claude or OpenAI (paid).</small></span></label>
+            <label><input type="radio" name="agent_kind" value="mock"><span><b>Mock model</b><small>Offline, free. Testing only.</small></span></label>
             <label><input type="radio" name="agent_kind" value="rule"><span><b>Rule-based null</b><small>No model; a fixed decision rule.</small></span></label>
           </div></fieldset>
-        <div class="grid show-claude">
-          <div class="field wide" data-field="model"><label for="model_id">Claude model</label>
-            <select id="model_id" name="model_id"></select>
-            <p class="help" id="model-note"></p></div>
+        <div class="grid show-llm">
+          <div class="field wide" data-field="model"><label for="model_sel">Model</label><select id="model_sel" name="model_sel"></select><p class="help" id="model-note"></p></div>
           <div class="field" data-field="temperature"><label for="temperature">Temperature</label>
-            <input id="temperature" name="temperature" type="number" step="0.1" min="0.1" placeholder="Provider default (1.0)">
-            <p class="help" id="temp-note">Leave empty for the provider default.</p></div>
-          <div class="field" data-field="max_tokens_cap"><label for="max_tokens_cap">Max output tokens</label>
-            <input id="max_tokens_cap" name="max_tokens_cap" type="number" min="1" value="16"></div>
+            <input id="temperature" name="temperature" type="number" step="0.1" min="0.1" value="1.0"><p class="help" id="temp-note"></p></div>
+          <div class="field" data-field="max_tokens_cap"><label for="max_tokens_cap">Max output tokens</label><input id="max_tokens_cap" name="max_tokens_cap" type="number" min="1" value="16"></div>
         </div>
         <div class="grid show-mock">
           <div class="field"><label for="mock_mode">Mock behaviour</label>
             <select id="mock_mode" name="mock_mode"><option value="uniform">Uniform random</option><option value="majority">Copy the most frequent partner label</option></select></div>
-          <div class="field"><label for="mock_invalid_rate">Share of invalid answers</label>
-            <input id="mock_invalid_rate" name="mock_invalid_rate" type="number" step="0.01" min="0" max="0.9" value="0"></div>
+          <div class="field"><label for="mock_invalid_rate">Share of invalid answers</label><input id="mock_invalid_rate" name="mock_invalid_rate" type="number" step="0.01" min="0" max="0.9" value="0"></div>
         </div>
         <div class="grid show-rule">
           <div class="field" data-field="policy_default"><label for="rule_policy">Decision rule</label>
@@ -134,23 +208,29 @@
               <option value="voter">voter(q): copy last partner with probability q</option>
               <option value="prior_sample">prior_sample: independent draw from p0</option>
             </select></div>
-          <div class="field show-voter" data-field="policy_params"><label for="q">q (copy probability)</label>
-            <input id="q" name="q" type="number" step="0.05" min="0" max="1" value="0.5"></div>
+          <div class="field show-voter" data-field="policy_params"><label for="q">q (copy probability)</label><input id="q" name="q" type="number" step="0.05" min="0" max="1" value="0.5"></div>
         </div>
       </section>
 
       <details class="card step" id="advanced">
-        <summary><span class="num ghost">+</span><span><b>Advanced options</b><small>Label prior, committed minority, robustness factors, other providers.</small></span></summary>
+        <summary><span class="num ghost">+</span><span><b>Advanced options</b><small>Phase, controls, label prior, committed minority, robustness factors.</small></span></summary>
         <div class="grid">
-          <div class="field wide" data-field="p0"><label for="p0">Label prior p0 (comma-separated; empty = uniform)</label>
-            <input id="p0" name="p0" placeholder="Paste p0_smoothed from a Study 0 calibration run">
-            <p class="help">Used by rule policies and for first moves. One value per label, in label-set order.</p></div>
+          <div class="field" data-field="phase"><label for="phase">Phase</label>
+            <select id="phase" name="phase"><option value="pilot">Pilot</option><option value="confirmatory">Confirmatory</option><option value="exploratory">Exploratory</option><option value="test">Test</option></select></div>
+          <div class="field" data-field="partner_source"><label for="partner_source">Partner label shown</label>
+            <select id="partner_source" name="partner_source"><option value="actual">Partner's real choice</option><option value="prior_replay">Replayed from the prior (loop control)</option></select></div>
+          <div class="field" data-field="framing"><label for="framing">Framing</label>
+            <select id="framing" name="framing"><option value="social">Another participant</option><option value="nonsocial">"Reference label" (control)</option></select></div>
           <div class="field" data-field="memory_order"><label for="memory_order">Memory order in the prompt</label>
             <select id="memory_order" name="memory_order"><option value="newest_first">Newest first</option><option value="oldest_first">Oldest first</option></select></div>
-          <label class="check field" data-field="show_own_agent_id"><input type="checkbox" name="show_own_agent_id" checked> Show "You are participant aXX"</label>
+          <div class="field wide" data-field="p0"><label for="p0">Label prior p0 (comma-separated; empty = uniform)</label>
+            <input id="p0" name="p0" placeholder="Required for replayed partners; used by rule policies and first moves">
+            <p class="help">One value per label, in label-set order.</p>
+            <div class="row gap-s show-replay"><button type="button" class="btn secondary small" id="fill-prior">Fill from room B0 / A0 (matched prior)</button><span class="help" id="fill-prior-msg"></span></div></div>
+          <label class="check field" data-field="show_own_agent_id"><input type="checkbox" name="show_own_agent_id"> Show "You are participant aXX" (robustness)</label>
           <label class="check field" data-field="robustness_cell"><input type="checkbox" name="robustness_cell"> Robustness cell (allows "same / different" feedback)</label>
-          <div class="field" data-field="max_concurrency"><label for="max_concurrency">Parallel API calls</label>
-            <input id="max_concurrency" name="max_concurrency" type="number" min="1" value="24"></div>
+          <label class="check field" data-field="pin"><input type="checkbox" name="pin" checked> Stop if the model version changes</label>
+          <div class="field" data-field="max_concurrency"><label for="max_concurrency">Parallel API calls</label><input id="max_concurrency" name="max_concurrency" type="number" min="1" value="24"></div>
         </div>
         <h3>Committed minority</h3>
         <label class="switch field" data-field="committed_minority"><input type="checkbox" name="minority_on"><span class="track" aria-hidden="true"></span><span>Add agents who always choose one fixed label</span></label>
@@ -159,12 +239,9 @@
           <div class="field"><label for="minority_start_rule">Starts</label>
             <select id="minority_start_rule" name="minority_start_rule"><option value="after_consensus">After consensus (or at start round)</option><option value="round">At a fixed round</option></select></div>
           <div class="field"><label for="minority_start_round">Start round</label><input id="minority_start_round" name="minority_start_round" type="number" value="50"></div>
-        </div>
-        <h3>Other providers</h3>
-        <div class="grid">
-          <div class="field"><label for="provider">LLM provider</label>
-            <select id="provider" name="provider"><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select></div>
-          <div class="field show-otherprov"><label for="other_model_id">Model ID</label><input id="other_model_id" name="other_model_id" placeholder="e.g. gpt-4o-mini"></div>
+          <div class="field"><label for="minority_end_round">Release at round (optional)</label><input id="minority_end_round" name="minority_end_round" type="number" placeholder="never"></div>
+          <div class="field"><label for="minority_label_rule">Their label</label>
+            <select id="minority_label_rule" name="minority_label_rule"><option value="random_nonmodal">Random non-modal label</option><option value="least_used_20">Least used in the last 20 rounds</option></select></div>
         </div>
         <div class="field wide"><label for="notes">Notes (saved with the run, never sent to agents)</label><textarea id="notes" name="notes" rows="2"></textarea></div>
       </details>
@@ -174,6 +251,7 @@
       <section class="card">
         <h2>Review &amp; run</h2>
         <p class="summary" id="design-summary"></p>
+        <div class="kv"><span>Counts toward room</span><code id="cell-id"></code></div>
         <div class="kv"><span>Experiment ID</span><code id="exp-id"></code></div>
         <div id="validation" role="status" aria-live="polite"></div>
         <div id="estimate" class="stats"></div>
@@ -186,7 +264,7 @@
         <div id="run-msg" role="status" aria-live="polite"></div>
         <details class="why">
           <summary>Why is every prompt checked for banned words?</summary>
-          <p>The study asks whether a shared label emerges from pairwise interaction alone. Words such as <i>agree, coordinate, consensus, majority, most, the group</i> would tell agents what to do or reveal group-level information, and reward words (<i>points, score, win</i>) would leak an incentive into the no-reward arm. Either would turn "emergence" into instruction-following. Before a prompt is sent, it is scanned; any hit stops the run and is written to <code>leakage_report.json</code>, which serves as audit evidence for SPEC §7.6 item 6.</p>
+          <p>The study asks whether a shared label emerges from pairwise interaction alone. Words such as <i>agree, coordinate, consensus, majority, most, the group</i> would tell agents what to do or reveal group-level information, and reward words (<i>points, score, win</i>) would leak an incentive into the no-reward arm. Before a prompt is sent, it is scanned; any hit stops the run and is written to <code>leakage_report.json</code>.</p>
         </details>
       </section>
       <section class="card">
@@ -198,22 +276,23 @@
           <button type="button" role="tab" data-p="other_arm.with_memory">Other arm, with memory</button>
         </div>
         <pre id="preview" class="prompt" tabindex="0"></pre>
-        <p class="help">The exact text sent as a single user message (no system prompt). Label order is shuffled independently for every prompt; memory lines here are examples.</p>
+        <p class="help">The exact text sent as a single user message. Label order is shuffled for every prompt; memory lines here are examples.</p>
       </section>
     </aside>
   </div>
 </section>
 
-<!-- =============================== MONITOR =============================== -->
+<!-- ============================== MONITOR ============================== -->
 <section id="tab-monitor" class="tab" aria-label="Monitor">
   <div class="card">
     <div class="row between wrap">
-      <div><h2 id="mon-title">No run in progress</h2><p class="hint" id="mon-sub">Start a run from Setup to see it here.</p></div>
+      <div><h2 id="mon-title">No run in progress</h2><p class="hint" id="mon-sub">Launch runs from the Study Plan or Custom run to see them here.</p></div>
       <div class="actions tight">
-        <button type="button" id="btn-open-result" class="btn secondary" hidden>Open results</button>
-        <button type="button" id="btn-cancel" class="btn danger" disabled>Stop run</button>
+        <button type="button" id="btn-open-result" class="btn secondary" hidden>Open result</button>
+        <button type="button" id="btn-cancel" class="btn danger" disabled>Stop</button>
       </div>
     </div>
+    <div id="mon-batch" class="help"></div>
     <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="mon-progress"><div id="mon-bar"></div></div>
     <div class="stats" id="mon-cards"></div>
     <div class="chart" id="mon-chart"></div>
@@ -221,11 +300,11 @@
   </div>
 </section>
 
-<!-- =============================== RESULTS =============================== -->
-<section id="tab-results" class="tab" aria-label="Results">
+<!-- ============================== ALL RUNS ============================== -->
+<section id="tab-results" class="tab" aria-label="All runs">
   <div class="card">
-    <div class="row between wrap"><div><h2>Runs</h2>
-      <p class="hint">Click a run ID to open it. Tick several runs to overlay their curves and compare winning labels across seeds.</p></div>
+    <div class="row between wrap"><div><h2>All runs</h2>
+      <p class="hint">Every run, including ad-hoc ones. Click a run ID to open it. Tick several runs to overlay their curves.</p></div>
       <button type="button" id="btn-refresh" class="btn secondary">Refresh</button></div>
     <div class="table-wrap"><table id="runs-table"></table></div>
   </div>
@@ -245,10 +324,40 @@
     <div class="chart" id="cmp-chart"></div>
     <div id="winners"></div>
   </div>
-  <div class="card" id="detail" hidden></div>
 </section>
 
-<!-- =============================== SETTINGS =============================== -->
+<!-- ============================== LABEL SETS ============================== -->
+<section id="tab-labels" class="tab" aria-label="Label sets">
+  <div class="layout">
+    <section class="card">
+      <h2>Label sets</h2>
+      <p class="hint">The words agents choose between. The three presets are frozen. Create as many of your own as you need; a set is locked once it has runs (clone it to change it).</p>
+      <div id="ls-list" class="ls-list"></div>
+    </section>
+    <aside class="side">
+      <section class="card" id="ls-editor">
+        <h2 id="ls-ed-title">New label set</h2>
+        <div class="field"><label for="ls-name">Name</label><input id="ls-name" placeholder="e.g. CVCV set 4"></div>
+        <div class="field"><label for="ls-labels">Labels (one per line, or separated by commas or spaces)</label>
+          <textarea id="ls-labels" rows="8" spellcheck="false"></textarea></div>
+        <div class="row wrap gap-s">
+          <div class="field inline"><label for="ls-size">Size</label><input id="ls-size" type="number" min="2" max="20" value="10"></div>
+          <button type="button" class="btn secondary small" id="ls-gen">Fill with random nonce words</button>
+        </div>
+        <div class="field"><label for="ls-note">Note (optional)</label><input id="ls-note"></div>
+        <div id="ls-check" role="status" aria-live="polite"></div>
+        <div class="actions">
+          <button type="button" class="btn primary" id="ls-save">Save label set</button>
+          <button type="button" class="btn secondary" id="ls-new">Clear</button>
+        </div>
+        <details class="why"><summary>What makes a good label set?</summary>
+          <p>Use short made-up words with the same shape (for example consonant-vowel-consonant-vowel). Avoid real words in any language, names, brands and pairs that differ by one letter: these create preferences that have nothing to do with interaction. Errors (duplicates, spaces, banned strings) block saving; warnings are for your judgment.</p></details>
+      </section>
+    </aside>
+  </div>
+</section>
+
+<!-- ============================== SETTINGS ============================== -->
 <section id="tab-settings" class="tab" aria-label="API and models">
   <div class="card narrow">
     <h2>API keys</h2>
@@ -263,13 +372,30 @@
     <div id="key-msg" role="status" aria-live="polite"></div>
   </div>
   <div class="card">
-    <div class="row between wrap"><div><h2>Claude models</h2>
-      <p class="hint">Choose the default model for new runs. You can still switch per run in Setup, step 5. "Test" sends one tiny request (about $0.0001).</p></div></div>
+    <h2>Claude models</h2>
+    <p class="hint">The default model is preselected in the Study Plan and Custom run. "Test" sends one tiny request (about $0.0001).</p>
     <div class="table-wrap"><table id="models-table"></table></div>
+  </div>
+  <div class="card">
+    <h2>OpenAI models</h2>
+    <p class="hint">Add the OpenAI model you plan to use as the second model family. Enter its price so the cost estimate works. Reasoning models (o-series, GPT-5) ignore temperature and are flagged.</p>
+    <div class="grid">
+      <div class="field"><label for="oa-id">Model ID</label><input id="oa-id" placeholder="e.g. gpt-4.1-mini"></div>
+      <div class="field"><label for="oa-in">Input $ per 1M tokens</label><input id="oa-in" type="number" step="0.01" min="0"></div>
+      <div class="field"><label for="oa-out">Output $ per 1M tokens</label><input id="oa-out" type="number" step="0.01" min="0"></div>
+    </div>
+    <div class="actions"><button type="button" id="oa-add" class="btn secondary">Add model</button></div>
+    <div class="table-wrap"><table id="oa-table"></table></div>
     <div id="model-msg" role="status" aria-live="polite"></div>
   </div>
 </section>
 </main>
+
+<dialog id="run-dialog" aria-labelledby="rd-title">
+  <div class="dlg-head"><h2 id="rd-title">Run</h2><button type="button" class="btn secondary small" id="rd-close">Close</button></div>
+  <div id="rd-body"></div>
+</dialog>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

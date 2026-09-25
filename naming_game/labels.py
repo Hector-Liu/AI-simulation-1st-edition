@@ -15,7 +15,8 @@ from pathlib import Path
 import numpy as np
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
-LABEL_STORE = DATA_DIR / "label_sets.json"
+LABEL_STORE = DATA_DIR / "label_sets.json"  # presets (P1-P3) and legacy sets (L1-L3), shipped with the code
+USER_LABEL_STORE = Path(__file__).resolve().parents[1] / "user_data" / "label_sets.json"  # sets created in the UI
 
 CONSONANTS = "bdfgklmnprstvz"
 VOWELS = "aeiou"
@@ -77,6 +78,10 @@ def brands() -> frozenset:
     return _wordlist("brands.txt")
 
 
+def problem_words() -> frozenset:
+    return frozenset(w for w in _wordlist("problem_words.txt") if not w.startswith("#"))
+
+
 # ---------------------------------------------------------------- rules --
 def levenshtein(a: str, b: str) -> int:
     a, b = a.lower(), b.lower()
@@ -108,6 +113,8 @@ def label_problems(label: str) -> list[str]:
         p.append("first name")
     if w in brands():
         p.append("brand")
+    if w in problem_words():
+        p.append("meaning in another language or near-homograph (curated list)")
     for s in DENY_SUBSTRINGS:
         if s in w:
             p.append(f"denylist substring {s!r}")
@@ -165,10 +172,25 @@ def label_set_hash(labels: list[str]) -> str:
 
 
 # ---------------------------------------------------------------- store --
-def load_label_sets() -> dict:
-    if not LABEL_STORE.exists():
+LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,23}$")
+
+
+def _read(path: Path) -> dict:
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def load_label_sets(include_legacy: bool = True) -> dict:
+    """All label sets: {id: {labels, hash, kind: preset|legacy|custom, name, ...}}."""
+    out = {}
+    for sid, e in _read(LABEL_STORE).items():
+        if e.get("kind") == "legacy" and not include_legacy:
+            continue
+        out[sid] = {"kind": "preset", "name": sid, **e}
+    for sid, e in _read(USER_LABEL_STORE).items():
+        out[sid] = {"kind": "custom", "name": sid, **e}
+    if not out:
         raise FileNotFoundError(LABEL_STORE)
-    return json.loads(LABEL_STORE.read_text())
+    return out
 
 
 def get_labels(label_set_id: str) -> tuple[str, ...]:
@@ -179,9 +201,78 @@ def get_labels(label_set_id: str) -> tuple[str, ...]:
     return tuple(labels)
 
 
+def check_label_set(labels: list[str]) -> dict:
+    """Errors block saving; warnings are shown for human review.
+
+    Errors protect the protocol (strict parsing, leakage guard). Warnings are
+    the nonce-word hygiene rules; a researcher may accept them knowingly.
+    """
+    errors, warnings = [], []
+    if not (2 <= len(labels) <= 20):
+        errors.append("a label set needs 2-20 labels")
+    seen = set()
+    for lab in labels:
+        if not LABEL_RE.match(lab):
+            errors.append(f"{lab!r}: use a single word (letters, digits or hyphen, starting with a letter, max 24 characters)")
+        low = lab.lower()
+        if low in seen:
+            errors.append(f"{lab}: duplicate (labels are compared case-insensitively)")
+        seen.add(low)
+        for sub in DENY_SUBSTRINGS:
+            if sub in low:
+                errors.append(f"{lab}: contains the banned string {sub!r} (it would trip the leakage guard)")
+        for why in label_problems(lab):
+            if not why.startswith("denylist"):
+                warnings.append(f"{lab}: {why}")
+    for i, a in enumerate(labels):
+        for b in labels[i + 1:]:
+            if a.lower() != b.lower() and levenshtein(a, b) < 2:
+                warnings.append(f"{a} / {b}: differ by only one letter (easy to confuse)")
+            if a[:2].lower() == b[:2].lower():
+                warnings.append(f"{a} / {b}: same first two letters")
+    if len({len(x) for x in labels}) > 1:
+        warnings.append("labels have different lengths (length can create a preference)")
+    return {"errors": errors, "warnings": warnings, "ok": not errors}
+
+
+def _slug(name: str) -> str:
+    base = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")[:24] or "set"
+    return f"C-{base}"
+
+
+def save_custom_label_set(name: str, labels: list[str], set_id: str | None = None, note: str = "") -> str:
+    labels = [x.strip() for x in labels if x.strip()]
+    chk = check_label_set(labels)
+    if chk["errors"]:
+        raise ValueError("; ".join(chk["errors"]))
+    store = _read(USER_LABEL_STORE)
+    presets = _read(LABEL_STORE)
+    if set_id is None:
+        set_id, k = _slug(name), 2
+        while set_id in store or set_id in presets:
+            set_id, k = f"{_slug(name)}-{k}", k + 1
+    elif set_id in presets:
+        raise ValueError("preset label sets cannot be edited; clone it instead")
+    import datetime as _dt
+    store[set_id] = {"name": name.strip() or set_id, "labels": labels, "hash": label_set_hash(labels),
+                     "created_at": store.get(set_id, {}).get("created_at") or _dt.datetime.now().isoformat(timespec="seconds"),
+                     "warnings": chk["warnings"], "note": note}
+    USER_LABEL_STORE.parent.mkdir(parents=True, exist_ok=True)
+    USER_LABEL_STORE.write_text(json.dumps(store, indent=2, ensure_ascii=False) + "\n")
+    return set_id
+
+
+def delete_custom_label_set(set_id: str):
+    store = _read(USER_LABEL_STORE)
+    if set_id not in store:
+        raise KeyError(set_id)
+    del store[set_id]
+    USER_LABEL_STORE.write_text(json.dumps(store, indent=2, ensure_ascii=False) + "\n")
+
+
 def freeze_label_sets(n_sets: int = 3, size: int = 10, base_seed: int = 20260924,
                       pattern: str = "CVCV", overwrite: bool = False) -> dict:
-    """Generate and freeze label sets. Refuses to overwrite an existing store."""
+    """v1 helper: generate and freeze label sets. Refuses to overwrite an existing store."""
     if LABEL_STORE.exists() and not overwrite:
         raise FileExistsError(f"{LABEL_STORE} already exists; label sets are frozen")
     store, used = {}, set()

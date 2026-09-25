@@ -18,14 +18,14 @@ LOGS_DIR = ROOT / "logs" / "experiments"
 
 INTERACTION_COLUMNS = [
     "run_id", "seed", "config_hash", "label_set_id", "round", "t_pc", "dyad_id", "agent_id", "partner_id",
-    "policy", "is_minority", "stimulus_id", "choice", "partner_choice", "match", "void", "valid", "attempts",
+    "policy", "is_minority", "stimulus_id", "choice", "partner_choice", "partner_actual_choice", "partner_source", "match", "void", "valid", "attempts",
     "points", "cum_points", "memory_records_included", "label_order_shown", "choice_position",
     "reward_shown", "feedback_text_shown", "block_id", "within_block", "prompt_sha256", "raw_output",
 ]
 POPULATION_COLUMNS = [
     "round", "t_pc_mean",
     *[f"{s}{m}" for s in ("round_", "state_", "state_excl_minority_")
-      for m in ("entropy", "entropy_norm", "modal_label", "modal_share", "n_unique_labels")],
+      for m in ("entropy", "entropy_norm", "modal_label", "modal_share", "n_unique_labels", "modal_tie")],
     "switch_rate", "n_choices", "invalid_rate", "void_rate",
 ]
 
@@ -68,8 +68,8 @@ class RunStore:
         self.dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def for_config(cls, config, base: Path = LOGS_DIR) -> "RunStore":
-        return cls(Path(base) / config.experiment_id / config.run_id)
+    def for_config(cls, config, base: Path | None = None) -> "RunStore":
+        return cls(Path(base if base is not None else LOGS_DIR) / config.experiment_id / config.run_id)
 
     def path(self, name: str) -> Path:
         return self.dir / name
@@ -88,8 +88,11 @@ class RunStore:
     def _append_csv(self, name, columns, rows):
         p = self.path(name)
         new = not p.exists()
+        if not new:  # keep the header of an existing file (runs written by an older schema)
+            with p.open(newline="") as f:
+                columns = next(csv.reader(f), None) or columns
         with p.open("a", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=columns, extrasaction="raise")
+            w = csv.DictWriter(f, fieldnames=columns, extrasaction="raise" if new else "ignore")
             if new:
                 w.writeheader()
             for r in rows:
@@ -149,7 +152,7 @@ class RunStore:
             if not rows:
                 continue
             keep = [r for r in rows if _int(r.get("round")) is not None and _int(r["round"]) <= last_round]
-            cols = INTERACTION_COLUMNS if name == "interactions.csv" else POPULATION_COLUMNS
+            cols = list(rows[0].keys())  # keep the file's own header
             with self.path(name).open("w", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=cols)
                 w.writeheader()
@@ -162,7 +165,8 @@ class RunStore:
                     f.write(json.dumps(r) + "\n")
 
 
-def list_runs(base: Path = LOGS_DIR) -> list[dict]:
+def list_runs(base: Path | None = None) -> list[dict]:
+    base = Path(base) if base is not None else LOGS_DIR
     out = []
     if not base.exists():
         return out
@@ -183,6 +187,11 @@ def list_runs(base: Path = LOGS_DIR) -> list[dict]:
                     "reward_mode": cfg.get("reward_mode"), "memory_mode": cfg.get("memory_mode"),
                     "memory_content": cfg.get("memory_content"), "H": cfg.get("memory_horizon_H"),
                     "policy": cfg.get("policy_default"), "model": (cfg.get("model") or {}).get("model_id"),
+                    "temperature": (cfg.get("model") or {}).get("temperature"),
+                    "cell_id": cfg.get("cell_id"), "phase": cfg.get("phase", "pilot"),
+                    "template_version": cfg.get("template_version", "v1"),
+                    "partner_source": cfg.get("partner_source", "actual"), "framing": cfg.get("framing", "social"),
+                    "model_versions": m.get("model_versions", []),
                     "provider": (cfg.get("model") or {}).get("provider"), "notes": cfg.get("notes", ""),
                     "summary": summ, "leakage_passed": m.get("leakage_passed"),
                     "rounds_done": m.get("rounds_done"), "dir": str(mpath.parent)})
@@ -190,7 +199,8 @@ def list_runs(base: Path = LOGS_DIR) -> list[dict]:
     return out
 
 
-def find_run(run_id: str, base: Path = LOGS_DIR) -> Path | None:
+def find_run(run_id: str, base: Path | None = None) -> Path | None:
+    base = Path(base) if base is not None else LOGS_DIR
     for p in base.glob(f"*/{run_id}"):
         if p.is_dir():
             return p

@@ -1,0 +1,3 @@
+You are paired with another participant, who chooses from the same list at the same time.
+After both choices are submitted, each of you is shown the other's choice.
+

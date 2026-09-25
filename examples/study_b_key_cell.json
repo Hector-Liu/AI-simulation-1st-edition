@@ -1,7 +1,7 @@
 {
   "experiment_id": "no_reward_convergence",
   "seed": 0,
-  "label_set_id": "L1",
+  "label_set_id": "P1",
   "n_agents": 24,
   "n_rounds": 300,
   "pairing": "random_dyad",
@@ -10,5 +10,14 @@
   "memory_horizon_H": 5,
   "reward_mode": "none",
   "feedback_mode": "choices_only",
-  "model": {"provider": "anthropic", "model_id": "claude-haiku-4-5", "max_tokens_cap": 16}
+  "model": {
+    "provider": "anthropic",
+    "model_id": "claude-haiku-4-5",
+    "max_tokens_cap": 16,
+    "temperature": 1.0,
+    "pin_version": "auto"
+  },
+  "cell_id": "B2",
+  "phase": "pilot",
+  "template_version": "v2"
 }

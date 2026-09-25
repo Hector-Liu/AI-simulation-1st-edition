@@ -5,11 +5,23 @@
     "n_rounds": 100,
     "reward_mode": "none",
     "feedback_mode": "choices_only",
-    "model": {"provider": "mock", "model_id": "mock", "mock_mode": "majority"}
+    "model": {
+      "provider": "mock",
+      "model_id": "mock",
+      "mock_mode": "majority"
+    },
+    "phase": "test"
   },
   "factors": {
-    "memory_mode": ["none", "own_interactions_only"]
+    "memory_mode": [
+      "none",
+      "own_interactions_only"
+    ]
   },
   "n_seeds": 2,
-  "label_sets": ["L1", "L2", "L3"]
+  "label_sets": [
+    "P1",
+    "P2",
+    "P3"
+  ]
 }

@@ -13,7 +13,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
+PHASES = ("pilot", "confirmatory", "exploratory", "test")
 ALLOWED_N = (12, 24, 48)
 CALIBRATION_N = 20  # Study 0 uses 20 sterile agents (SPEC §3.1)
 
@@ -41,7 +42,10 @@ class CommittedMinority(_Frozen):
     frac: float
     start_rule: Literal["after_consensus", "round"] = "after_consensus"
     start_round: int = 50
-    label_rule: Literal["least_used_20"] = "least_used_20"
+    # Planted history (E5): the scripted agents are released at end_round.
+    end_round: Optional[int] = None
+    # random_nonmodal (v2 default) avoids tying the minority label to a low prior.
+    label_rule: Literal["random_nonmodal", "least_used_20"] = "random_nonmodal"
 
 
 class ModelSpec(_Frozen):
@@ -53,6 +57,9 @@ class ModelSpec(_Frozen):
     # Only for provider = mock: "uniform" | "majority" and an invalid-output rate.
     mock_mode: Literal["uniform", "majority"] = "uniform"
     mock_invalid_rate: float = 0.0
+    # "auto" pins to the version returned by the first call; an exact string
+    # pins to that version. A different version aborts the run.
+    pin_version: Optional[str] = None
 
 
 class RetryPolicy(_Frozen):
@@ -63,6 +70,11 @@ class RetryPolicy(_Frozen):
 
 class ExperimentConfig(_Frozen):
     schema_version: str = SCHEMA_VERSION
+    template_version: Literal["v1", "v2"] = "v2"
+    cell_id: Optional[str] = None  # a room from rooms.ROOMS, or None for ad-hoc runs
+    phase: Literal["pilot", "confirmatory", "exploratory", "test"] = "pilot"
+    framing: Literal["social", "nonsocial"] = "social"
+    partner_source: Literal["actual", "prior_replay"] = "actual"
     experiment_id: Literal["rewarded_naming", "no_reward_convergence", "prior_calibration", "null_model"]
     run_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     seed: int
@@ -81,13 +93,14 @@ class ExperimentConfig(_Frozen):
     show_cumulative_points: Optional[bool] = None  # resolved to True with numeric_score
     label_pool_size: int = 10
     n_stimuli: int = 1
-    show_own_agent_id: bool = True
+    show_own_agent_id: bool = False  # hidden by default (v2, P2-5)
     policy_default: Literal["llm", "prior_sample", "voter", "majority_H"] = "llm"
     policy_params: PolicyParams = PolicyParams()
     committed_minority: Optional[CommittedMinority] = None
     # Label prior used by rule policies and first moves (None = uniform).
     # Fill from a prior-calibration run of the same label set (SPEC §3.1).
     p0: Optional[tuple[float, ...]] = None
+    p0_source: str = ""  # where p0 came from, e.g. "derived:B0:P1:n=3 runs" (hashed with the config)
     yoked_source_run_id: Optional[str] = None
     robustness_cell: bool = False  # required for match_indicator (R5)
     model: Optional[ModelSpec] = None
@@ -202,9 +215,29 @@ def validation_errors(c: ExperimentConfig) -> list[str]:
     if c.show_cumulative_points and c.feedback_mode != "numeric_score":
         e.append("show_cumulative_points requires feedback_mode=numeric_score")
 
+    # v2 conditions
+    if c.template_version == "v1" and c.framing != "social":
+        e.append("framing=nonsocial requires template_version v2")
+    if c.framing == "nonsocial":
+        if c.reward_mode != "none" or not c.memory_on or c.memory_content != "own_and_partner" or c.pairing == "isolated":
+            e.append("framing=nonsocial requires no reward, memory on with own_and_partner, and partners")
+    if c.partner_source == "prior_replay":
+        if not c.memory_on or c.memory_content != "own_and_partner" or c.pairing != "random_dyad":
+            e.append("partner_source=prior_replay requires random_dyad pairing and own_and_partner memory")
+        if c.p0 is None:
+            e.append("partner_source=prior_replay needs a label prior p0 (derive it from room B0/A0, or set a uniform prior explicitly)")
+        if c.feedback_mode == "numeric_score":
+            e.append("partner_source=prior_replay is defined for choices_only feedback")
+    from .rooms import ROOMS, room_mismatches
+    if c.cell_id is not None and c.cell_id not in ROOMS:
+        e.append(f"cell_id {c.cell_id!r} is not a known room")
+    e.extend(room_mismatches(c))
+    if c.model is not None and c.model.provider == "mock" and c.phase in ("pilot", "confirmatory"):
+        e.append("mock-model runs must use phase=test or exploratory (they are never study data)")
+
     # labels / stimuli
-    if c.label_pool_size not in (8, 10):
-        e.append("label_pool_size must be 8 or 10")
+    if not (2 <= c.label_pool_size <= 20):
+        e.append("label_pool_size must be between 2 and 20")
     if c.n_stimuli != 1:
         e.append("n_stimuli > 1 is not implemented yet")
     try:
@@ -250,7 +283,9 @@ def validation_errors(c: ExperimentConfig) -> list[str]:
             e.append("committed_minority is not allowed in calibration")
         if not (0 < cm.frac < 0.5):
             e.append("committed_minority.frac must be in (0, 0.5)")
-        elif round(cm.frac * c.n_agents) < 1:
+        if cm.end_round is not None and cm.end_round <= (cm.start_round if cm.start_rule == "round" else 0):
+            e.append("committed_minority.end_round must come after the start")
+        if (0 < cm.frac < 0.5) and round(cm.frac * c.n_agents) < 1:
             e.append("committed_minority.frac * n_agents rounds to 0 agents")
         if c.pairing == "star":
             e.append("committed_minority is not supported with star pairing")

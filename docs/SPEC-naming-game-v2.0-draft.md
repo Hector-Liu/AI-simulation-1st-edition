@@ -1,6 +1,6 @@
 # SPEC v2.0 (DRAFT) — Naming-game experiments: revised design and software changes
 
-Status: **DRAFT for review (2026-09-24). Not approved. Nothing here is implemented yet.**
+Status: **DRAFT (2026-09-24). Step 1 implemented** (rooms, templates v2, controls B2R/A2R/NS2, label-set manager, metrics, ops). See `IMPLEMENTATION_NOTES.md` § v2 step 1. Decisions of 2026-09-24 amend this draft: three preset label sets plus unlimited custom sets instead of ten fixed sets; control rooms are optional and launched separately; OpenAI is the second family (model TBD); default temperature 1.0.
 Supersedes: `SPEC-naming-game-v1.0.md` where they differ. Sections of v1 not mentioned here stay in force.
 Inputs:
 - the reviewer memo "命名博弈实验设计审阅意见" (2026-09-24), with P1-1…P3-8;

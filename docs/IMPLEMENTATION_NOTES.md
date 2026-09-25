@@ -1,4 +1,4 @@
-# Implementation notes (v1.0, 2026-09-24)
+# Implementation notes (v1.0 → v2 step 1, 2026-09-24)
 
 How this engine implements `SPEC-naming-game-v1.0.md`, where it had to make a
 choice the SPEC left open, and what is not built yet. Read this before
@@ -57,3 +57,35 @@ UI) in a much smaller codebase:
 - Yoked exposure control B+3 (`yoked_source_run_id` is rejected by validation).
 - `n_stimuli > 1`, and mixed-model populations (per-agent `model_id`).
 - Anthropic Message Batches (50 % cheaper) for large matrices. Rounds are sequential, so batching would need one batch per round.
+
+
+---
+
+## v2, step 1 (design decisions of 2026-09-24)
+
+Implemented from `SPEC-naming-game-v2.0-draft.md` together with Yuhan's decisions:
+
+| Decision | What was built |
+|---|---|
+| Six-room design (2 × 3), rooms chosen by hand | `rooms.py` defines B0/B1/B2/A0/A1/A2. Each config carries a `cell_id`, and validation rejects a config whose settings do not match its room. The **Study Plan** page shows the 2 × 3 grid: tick any rooms, pick label sets, runs per set, agents, rounds, H, model, temperature and phase, then launch. Each room opens a panel with its entropy curves, winners and a table of runs; every run opens a detail dialog |
+| Control rooms are optional and run separately | B2R / A2R (prior replay, `partner_source = prior_replay`) and NS2 (`framing = nonsocial`) appear in their own section of the Study Plan. Their results are listed like any other room. A replay room derives its prior from finished B0 / A0 runs on the same label set, model and temperature (`priors.py`), or from an explicit uniform prior |
+| 3 preset label sets + unlimited custom sets | New presets P1–P3 were generated, screened (English dictionary, names, brands, a curated multilingual list in `data/problem_words.txt`) and **picked by hand**. The v1 sets L1–L3 are kept read-only as "legacy" so old runs stay readable. The **Label sets** page creates, clones, edits and deletes custom sets (`user_data/label_sets.json`). Errors (duplicates, spaces, banned strings) block saving; hygiene problems are shown as warnings. A set becomes locked once it has runs |
+| OpenAI as the second family (model not chosen yet) | The **API & Models** page stores OpenAI model IDs together with a user-entered price, and has a test button. Reasoning models are flagged |
+| Temperature | Default **1.0**, set explicitly and logged. See "Temperature" below |
+| Template v2 | Agent id hidden by default; own-only rooms use an interaction paragraph without "each of you is shown the other's choice"; the payoff objective reads "maximize your own points"; non-social templates for NS2. The v1 templates are kept for replaying old configs |
+| Metrics | `entropy_final` (primary); consensus at τ = 0.8 / 0.9 / 0.95; `fragmentation_stable`; seeded random tie-breaks with tie flags; extended choice-model columns (`own_prev_visible`, `own_prev_history`, `partner_last`, `matched_k`, `recency_w_partner`, `pos_first`, `pos_last`, `pre_consensus`) |
+| Ops | `phase` (pilot / confirmatory / exploratory / test; mock runs are always test); `pin_version = auto` stops a run if the model version changes; Study Plan batches run in a shuffled (interleaved) order; confirmatory runs may only use priors derived from pilot runs |
+| Minority | `random_nonmodal` label rule (default) and `end_round` (planted history) |
+
+Tests: 76 in total (v1 acceptance tests 1–15, SPEC v2 tests 16/17/23/24/26/28–30, rooms, study-plan expansion, label sets, priors, API).
+
+### Temperature: why 1.0 and not 0.5
+
+Temperature T rescales the model's choice probabilities to p^(1/T), so T = 0.5 roughly **squares** them. Nonce-word priors are often uneven, and squaring makes the most-preferred label much more dominant in round 0. With T = 0.5, every room, including the no-memory baseline, would therefore tend to "agree" on the prior favourite before any interaction happens. That creates a floor effect for H2a (key vs own-only) and pushes H4 towards "the prior decides". T = 1.0 samples from the model's own distribution, which is the natural reference point for a prior. It is also the provider default, so behaviour is comparable across providers. Low temperatures are best run as a robustness factor (for example 0.7 in the pilot). The UI lets you set any value above 0.
+
+### Still to build (next steps)
+
+- Probes (P-CF counterfactual, P-LOCK lock-in, P-MC manipulation check) and the Probes page.
+- Vectorized null models with the innovation term ε; γ estimation; the H4b early-state test; the power simulation.
+- `fitted_logit` policy (H6); the prereg bundle export.
+- Token-count balance for labels (D24) and the edit-distance-to-common-English rule. Until then, human review of label sets is the safeguard.

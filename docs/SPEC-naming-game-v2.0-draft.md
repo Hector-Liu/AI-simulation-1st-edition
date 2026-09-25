@@ -4,6 +4,7 @@ Status: **DRAFT for review (2026-09-24). Not approved. Nothing here is implement
 Supersedes: `SPEC-naming-game-v1.0.md` where they differ. Sections of v1 not mentioned here stay in force.
 Inputs:
 - the reviewer memo "命名博弈实验设计审阅意见" (2026-09-24), with P1-1…P3-8;
+- the full review package `Review_Naming_Game_Guide_v0.1.md` (EIC, R1–R3, DA, editor decision; items R1…R9, S1…S10). Items that are not in the memo are marked **[pkg]**;
 - `Naming_Game_Experiment_Guide.md` v0.1;
 - `IMPLEMENTATION_NOTES.md`.
 Companion for human review (Chinese): `Review_Response_and_Design_v2.md` / `.docx`.
@@ -30,6 +31,10 @@ Decisions that need Yuhan's sign-off are marked **⚑ Dxx** and collected in §1
 | Manipulation check | — | self-report probe (human-coded) **plus** a behavioural check from the probes (P2-6) |
 | Second model family | TBD | Open-weights model through an OpenAI-compatible server with **logprobs** (P2-7) |
 | Exploratory | star / community / minority as Study A rows | star (t_pc-scaled, cheap), community with p_within ∈ {0.8, 0.9, 0.99}, minority grid 2–30 %, temperature 0.7 / 1.0 (P3-1, P3-2, P3-4) |
+| Feedback-loop control [pkg] | B+3 yoked replay not implemented | **Prior-replay cells B2-R / A2-R**: the partner label shown is drawn i.i.d. from the arm's matched p0, not from the partner. The feedback loop is cut; the framing is identical. Confirmatory control |
+| Exposure vs social framing [pkg] | — | **Non-social framing cell NS2**: same closed loop as B2, but the partner's choice is presented as "the reference label shown". Secondary control |
+| Path dependence [pkg] | only across-seed winner dispersion | **H4b**: the early state (shares at t_pc = 3) predicts the winner beyond label-specific constants, compared with the same statistic under the nulls. Optional **planted-history** manipulation (E5) |
+| T_consensus [pkg] | KS test | Survival analysis (Kaplan–Meier; Cox stratified by label set) on the t_pc axis; right-censoring handled |
 | Ops | — | model snapshot pinning, interleaved cell order, pilot/confirmatory separation, per-condition invalid-rate report, random tie-breaks for modal labels (P3-5–P3-7, reply 6) |
 
 ---
@@ -48,12 +53,15 @@ Decisions that need Yuhan's sign-off are marked **⚑ Dxx** and collected in §1
 |---|---|---|---|
 | **H2a** | No reward: `entropy_final(own_and_partner) < entropy_final(own_only)` at H = 5 | mixed model (§7.3); TOST if not significant | **primary** |
 | **H4** | The winner distribution is **less prior-determined** than the noisy-voter null: γ̂ < γ_null (§7.5) | γ, simulation p-value | **primary if the power simulation gives ≥ 0.8 at the planned N, otherwise secondary (⚑ D14)** |
+| **H4b** [pkg] | Early state predicts the winner beyond label constants more strongly than under the noisy-voter null | multinomial logit, §7 step 4b | secondary (becomes primary H4 if γ power is < 0.8) |
+| **H7** [pkg] | Closing the loop matters: `entropy_final(B2) < entropy_final(B2-R)`, and likewise A2 < A2-R | as H2a | **confirmatory control** (secondary family) |
 | H1a | Reward: `entropy_final(own_and_partner) < entropy_final(own_only)` | as H2a | secondary |
 | H2b / H1b | Each memory cell < its arm's memory-none cell | as H2a | secondary |
 | H3 | Causal partner-exposure effect: in counterfactual probes, P(choose k) rises with the number of partner-k records, holding own records fixed | probe regression (§6.1) | secondary (mechanism) |
 | H6 | `fitted_logit`, fitted on probe data, predicts LLM macro outcomes (entropy_final, T_consensus, γ, fragmentation rate) within its 90 % predictive interval | posterior-predictive check (§7.6) | secondary |
-| H5 | Community topology: fragmentation rate rises with p_within | logistic | exploratory |
-| E1–E4 | Score feedback (numeric_score vs choices_only); H length; temperature; committed-minority tipping curve | descriptive / curve fit | exploratory |
+| H8 [pkg] | Social framing matters beyond exposure: `entropy_final(B2) < entropy_final(NS2)` (no reward) | as H2a | secondary |
+| H5 | Community topology: fragmentation rate rises with p_within; star winners track the hub's individual prior [pkg] | logistic; winner vs hub-prior rank | exploratory |
+| E1–E5 | Score feedback (numeric_score vs choices_only); H length; temperature; committed-minority tipping curve; planted history [pkg] | descriptive / curve fit | exploratory |
 
 Multiple comparisons (P3-8): Holm within the primary family (2 tests) and within the secondary family. Exploratory results are labelled as such and not corrected.
 
@@ -68,6 +76,8 @@ Multiple comparisons (P3-8): Holm within the primary family (2 tests) and within
   - (a) bundled lists of common words in the major languages that use Latin script (EN, ES, PT, IT, FR, DE, NL, TR, ID/MS, TL, plus Chinese pinyin syllable pairs and Japanese romaji);
   - (b) rejection of any label within edit distance 1 of a word in a bundled **frequency** list of common English words (removes *Kife*~knife, *Sefe*~safe);
   - (c) no near-homographs of common brands or technical terms (*Vifi*~WiFi).
+- (d) [pkg] **token-count balance**: every label in a set has the same number of tokens under the primary model's tokenizer. For Anthropic this is measured with the token-counting endpoint as the count difference between a fixed carrier sentence with and without the label; for the open model the tokenizer is used directly. The token count is also exported as a diagnostic covariate.
+- (e) [pkg] the language lists also include Swahili.
 - **Human review gate:** the tool exports a review sheet. Yuhan (and ideally one more person) mark each label ok / replace. Replacements come from the same generator. Then freeze: `label_sets.json` gets a hash and a `frozen_at` date. **Freeze before the first pilot run.** After that, the v1 rule "never regenerate" applies.
 - L1–L3 are replaced, not kept. They have only smoke-test and mock data, which never count as study data.
 
@@ -96,6 +106,21 @@ Fixed across core cells:
 - Within each memory column, the two reward arms differ **only** by the payoff block. Test 9 enforces this for all three columns.
 - Between own_only and own_and_partner, prompts differ by (i) the second sentence of the interaction block and (ii) the partner clause in memory lines. Both differences are reported. The manipulation check (§6.3) tests whether (i) changes the perceived task.
 - Crossed (label set, seed) pairs across cells mean every contrast is **paired within label set × seed**. The same seed gives the same pairing schedule and label orders (common random numbers).
+
+### 3.3a Loop and framing controls [pkg]
+
+| cell | settings | question |
+|---|---|---|
+| **B2-R** prior replay | as B2, but `partner_source = prior_replay`: every record's partner label is drawn i.i.d. from p0_B(ls) with the `policy` RNG stream; the agent's own choice goes nowhere | Does convergence need the closed interaction loop? (H7) |
+| **A2-R** prior replay | as A2, with p0_A; the payoff is computed against the replayed label | as above, reward arm |
+| **NS2** non-social framing | as B2 (the closed loop stays: the label shown is the partner's real choice), but `framing = nonsocial`: the interaction block and the memory lines describe a "reference label", not another participant | Social framing vs plain in-context exposure (H8) |
+
+Each has 30 runs with the same (label set, seed) pairs.
+- Prior replay replaces the editor's full yoked replay (B+3). Full yoked replay stays as an exploratory option for a later version.
+- Prior replay is stationary exposure: it tests the loop, not the time course of exposure.
+- NS2 templates (verbatim, guarded):
+  - interaction block: `After you choose, a reference label from the same list is shown to you.`
+  - memory line: `- {k}: you chose {self}; the reference label shown was {partner}.`
 
 ### 3.4 Prompt-matched priors (P1-2)
 
@@ -131,15 +156,17 @@ Probes are stateless single calls outside the simulation dynamics. They never wr
 
 ### 3.8 Exploratory blocks (P3-1, P3-2, P3-4)
 
-- **Community (H5):** A2 settings (choices_only) with p_within ∈ {0.8, 0.9, 0.99}, 10 runs each.
-- **Star:** A2 settings with n_rounds scaled so that the median leaf reaches t_pc ≈ 50. For N = 24 that is about 1 150 rounds, 2 300 calls/run, about $0.7/run. 10 runs. Star is cheap (2 calls/round); the reason to downgrade it is low information, not cost.
-- **Committed minority (E4):** N = 48, A2 settings, frac ∈ {2, 5, 10, 15, 20, 25, 30} %, 5 runs each. Fit a logistic tipping curve. Explicitly exploratory.
+- **Community (H5):** first draw a **null-model phase diagram** [pkg]: noisy majority_H and fitted voter, p_within ∈ {0.8, 0.9, 0.95, 0.98, 0.99}, 2 and 3 blocks, coexistence rate. Then run the LLM (A2 settings, choices_only) at the 3 p_within values closest to the null transition, 10 runs each.
+- **Star:** A2 settings with n_rounds scaled so that the median leaf reaches t_pc ≈ 50. For N = 24 that is about 1 150 rounds, 2 300 calls/run, about $0.7/run. 10 runs. Star is cheap (2 calls/round); the reason to downgrade it is low information, not cost. Prediction [pkg]: star winners are closest to the hub's individual prior, i.e. the weakest symmetry breaking of all topologies.
+- **Committed minority (E4):** N = 48, A2 settings. The fractions are chosen from a null-model sweep [pkg]: default {5, 10, 20, 30} %, plus up to 3 more levels near the null tipping point, 5 runs each. Fit a logistic tipping curve. Explicitly exploratory.
+  - **Minority label rule changed [pkg]:** `random_nonmodal`, i.e. uniform among the labels that are not modal at activation. The label's matched p0 is reported. v1's "least used in the last 20 rounds" rule is kept as an option; it tends to pick the lowest-prior label and so confounds tipping with prior.
+- **Planted history (E5) [pkg]:** a transient scripted minority (frac 25 %) plays a pre-registered low-p0 label in rounds 0…k−1 (k = 10), then the agents are released back to the LLM policy. Question: does the final winner follow the planted label more often than the nulls predict? 10 runs in B2 and 10 in A2 settings. It reuses the minority machinery with `end_round`.
 - **Temperature (E3):** in the pilot, Haiku at T ∈ {0.7, 1.0} on the core cells. The confirmatory value is chosen in the pilot (⚑ D19). The other value is run as a robustness replicate of B1/B2 only.
 
 ### 3.9 Pilot → preregistration (P3-6)
 
 1. Label sets: generate, human review, freeze. Run Study 0 per set.
-2. Pilot: 6 core cells × 4 (label set, seed) pairs × 2 temperatures. Estimate plateau t_pc, run-level SD of entropy_final, invalid rates per condition, and p0_A / p0_B.
+2. Pilot: 6 core cells × 5 (label set, seed) pairs × 2 temperatures [pkg: ≥ 5 seeds]. **Plateau** [pkg] = the first round at which the absolute OLS slope of state_entropy_norm over a sliding 20-round window stays below 0.002 per round for 20 consecutive windows. Estimate plateau t_pc, run-level SD of entropy_final, invalid rates per condition, and p0_A / p0_B.
 3. Probes: P-LOCK (gives ε and the noise floor), P-CF (gives θ for fitted_logit), P-MC (human coding).
 4. Nulls and the **power simulation** (§7.7). Set n_rounds = max(3 × the upper quartile of plateau t_pc over cells, 100). Set the number of seeds and the SESOI.
 5. Freeze templates (v2 hashes), label sets, schema, model snapshot and the analysis script; export the prereg bundle (§8.6); preregister.
@@ -196,6 +223,11 @@ Your objective is to maximize your own points.
 - The consensus threshold τ (default 0.9, D8) is **validated**: if the expected converged share is below τ + 0.03, set τ = expected share − 0.05 and preregister it.
 - The noise floor comes from the probe, not from Study 0: Study 0 measures the unconditional prior, not stability after convergence.
 
+### 5.2a Threshold sensitivity and stable fragmentation [pkg]
+
+- Consensus and T_consensus are reported at τ ∈ {0.8, 0.9, 0.95} together with the calibrated τ.
+- **Fragmentation v2** = at least 2 labels with mean share ≥ 0.3 over the last 20 % of rounds, **and** both labels' share slopes over that window are within ±0.001 per round, **and** the mean switch rate is below the lock-in-probe noise level × 1.5. Otherwise the run is "not yet converged". This separates stable coexistence from slow convergence.
+
 ### 5.3 Ties (reply 6)
 
 - Modal-label ties are broken by the `tiebreak` RNG stream seeded by (seed, round), no longer alphabetically.
@@ -214,6 +246,9 @@ One row per (choice, candidate label k) in `choice-model.csv`:
 - `recency_w_partner`: Σ over partner-k records of w(age), with w = 1 / age
 - `position` (0-based) plus `pos_first` and `pos_last` indicators; analysts code full dummies
 - `log_p0_matched` (arm-matched, per label set)
+- `token_count` of k [pkg]
+- `pre_consensus` [pkg]: 1 if the round is before the first round at which the calibrated consensus condition starts to hold. The observational H3 model uses the pre-consensus window as its main sample, because after consensus own and partner counts are almost collinear.
+- The observational model uses **label-specific constants** (per label set × arm) [pkg] instead of log p0; log p0 stays in the export for the probe model and for H4.
 - `label_set_id`, `run_id`, `seed`, `cell_id`, `reward`, `memory_content`
 
 ### 5.5 Reports
@@ -291,7 +326,10 @@ Estimation:
      - γ̂ within the voter null band → the prior decides;
      - γ̂ within the majority/fitted_logit band → collective bias explained by the interaction mechanism;
      - γ̂ below all null bands → path dependence / symmetry breaking beyond the modelled mechanism.
-5. **H3:** probe regressions (§6.1); observational choice model as description.
+4b. **H4b (within-run path dependence) [pkg]:** multinomial logit of the winner on label-specific constants (which absorb the prior) plus the state shares at t_pc = 3. The coefficient on early share is compared with its distribution under the noisy-voter and fitted_logit nulls. Every copying dynamic is path-dependent to some degree, so the claim is about **excess** path dependence, not its existence.
+5. **H3:** probe regressions (§6.1); observational choice model (label constants, pre-consensus window, run-clustered SEs; agent random intercepts as a robustness check) as description.
+5b. **T_consensus [pkg]:** Kaplan–Meier curves by cell on the t_pc axis; Cox model stratified by label set; runs without consensus are right-censored at n_rounds.
+5c. **H7 / H8:** same model as H2a with the B2-R / A2-R / NS2 cells.
 6. **H6 (micro → macro):** simulate `fitted_logit` (θ̂ from probes) on the same scheduler with 1 000 seeds per core cell. Report where the LLM's entropy_final, T_consensus, γ̂ and fragmentation rate fall in the simulated predictive distributions.
    - Inside the 90 % band → weak emergence, explained by the individual choice function.
    - Outside the band **and** the individual model passes its held-out adequacy check → evidence of higher-order history effects.
@@ -301,11 +339,11 @@ Estimation:
    - for H4: generate winners under γ = 1 (null) and under γ = γ_alt (⚑ D14 default 0.5) with nulls, and find how many runs give power 0.8 at α = 0.05;
    - output: runs per cell, and whether H4 enters the primary family.
 8. **Emergence checklist (revises v1 §7.6):**
-   1. entropy_final(own_and_partner) < own_only (H2a / H1a) and below the prior_sample null;
-   2. γ̂ below the voter band (H4);
+   1. entropy_final(own_and_partner) < own_only (H2a / H1a), and the closed loop matters (H7: B2 < B2-R). [pkg: the v1 "below the prior_sample null" item was dropped as redundant with the memory-none baseline];
+   2. γ̂ below the voter band (H4) and/or excess early-state path dependence (H4b);
    3. the probe dose–response is positive (a social-influence **mechanism** exists; necessary, not sufficient);
    4. the H6 result is reported as either "explained" or "higher-order";
-   5. fragmentation rates are reported (local success ≠ global consensus);
+   5. fragmentation v2 rates are reported (local success ≠ global consensus); B1 (not S1) is the "no social information" control [pkg D5: convergence in S1 is reinforcement learning from payoffs and does not count against emergence];
    6. 100 % leakage audit passed; invalid rate under the thresholds in every included cell.
 
 ---
@@ -319,6 +357,9 @@ Estimation:
 | `show_own_agent_id` | default **false** |
 | `template_version` | new, "v2" default; "v1" allowed for replication |
 | `cell_id` | new, free label ("B2", "A1", …) used in reports and priors |
+| `partner_source` [pkg] | new: `actual` \| `prior_replay` (partner label drawn from the arm's matched p0 via `p0_ref`) |
+| `framing` [pkg] | new: `social` \| `nonsocial` (NS2 templates) |
+| `committed_minority` | adds `end_round` (planted history) and `label_rule ∈ {random_nonmodal (default), least_used_20, fixed:<label>}` |
 | `interaction_variant` | new: `standard` \| `own_only`. Defaults to own_only when memory_content = own_only; may be set explicitly on memory-none prior cells (B0′/A0′) |
 | `phase` | new: `pilot` \| `confirmatory` \| `probe` \| `null`. Store path `logs/{phase}/…`. Confirmatory runs refuse p0 or θ derived from confirmatory data |
 | `p0_ref` | new: reference to a stored prior `{prior_id, sha256}`; mutually exclusive with explicit `p0`. The resolved p0 (and its counts) are copied into the manifest |
@@ -392,7 +433,10 @@ Estimation:
 | 24 | `pin_version` mismatch aborts with `failed_model_drift` |
 | 25 | `phase = confirmatory` refuses a p0 or θ derived from confirmatory runs |
 | 26 | Hidden id: no `participant a\d\d` in any prompt unless `id_shown`; hub prompt identical to leaf prompts |
-| 27 | Label hygiene v2 (extended lists, edit-distance-1 rule, `frozen_at` present) |
+| 27 | Label hygiene v2 (extended lists, edit-distance-1 rule, equal token counts, `frozen_at` present) |
+| 28 | Prior replay: partner labels shown to an agent are independent of every other agent's choices (permutation test on a mock run); commit_dyad stays the only writer |
+| 29 | Non-social framing: prompts pass the guard and contain no "participant"; within NS2, prompts differ from B2 only in the interaction block and memory-line wording |
+| 30 | Minority `random_nonmodal`: the label is never the modal label at activation; `end_round` releases the agents back to the base policy |
 
 ---
 
@@ -422,9 +466,11 @@ Steps 1–2 and 4–7 are new. Single runs (the current Setup → Monitor → Re
 | Community p_within × 3 (30) | 30 | 216 000 | $62 |
 | Star, t_pc-scaled (10) | 10 | 23 000 | $7 |
 | Minority N = 48, 7 levels × 5 | 35 | 504 000 | ≈ $145 |
-| Pilot (6 cells × 4 pairs × 2 T) | 48 | 345 600 | $69 |
+| Pilot (6 cells × 5 pairs × 2 T) | 60 | 432 000 | $86 |
+| Loop / framing controls B2-R, A2-R, NS2 (3 × 30) [pkg] | 90 | 648 000 | ≈ $135 |
+| Planted history E5 (2 × 10) [pkg] | 20 | 144 000 | ≈ $30 |
 | Study 0 (10 sets) + prior cells B0′/A0′ + probes (P-LOCK 4 000, P-CF 6 000, P-MC 300) | — | ≈ 22 300 | ≈ $5 |
-| **Total** | | **≈ 2.98 M** | **≈ $711** |
+| **Total** | | **≈ 3.86 M** | **≈ $891** |
 
 - The pilot is expected to lower n_rounds. At 150 rounds the core costs about $125 instead of $259.
 - The second model family is not included; its cost depends on hosting.
@@ -446,4 +492,8 @@ Steps 1–2 and 4–7 are new. Single runs (the current Setup → Monitor → Re
 | D17 | Star: exploratory, t_pc-scaled | yes |
 | D18 | Minority: exploratory grid 2–30 %, 5 runs per level | yes |
 | D19 | Confirmatory temperature (0.7 vs 1.0) | choose in the pilot: the higher T that keeps invalid < 2 % and the noise floor above τ |
+| D21 [pkg] | Prior-replay cells B2-R/A2-R as the preregistered loop control (instead of full yoked replay) | yes |
+| D22 [pkg] | Non-social framing cell NS2 (no-reward arm only) | yes |
+| D23 [pkg] | Planted history E5 as exploratory | yes, if the budget allows |
+| D24 [pkg] | Token-count balance as a label-screening rule | yes |
 | D20 | Primary model | Haiku 4.5, pinned to the snapshot seen in the pilot (`claude-haiku-4-5-20251001` at present) |

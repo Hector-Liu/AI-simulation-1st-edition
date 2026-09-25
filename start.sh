@@ -16,14 +16,14 @@ find_python() {
 
 REQ_HASH=$(shasum requirements.txt | cut -d' ' -f1)
 if [ ! -x venv/bin/python ] || [ "$(cat venv/.req_hash 2>/dev/null)" != "$REQ_HASH" ]; then
-  echo "正在准备 Python 环境（首次约 1–2 分钟）…"
+  echo "Preparing the Python environment (first run takes 1-2 minutes)..."
   UV=$(find_uv)
   if [ -n "$UV" ]; then
     [ -x venv/bin/python ] || "$UV" venv --python 3.13 venv
     "$UV" pip install --python venv/bin/python -r requirements.txt
   else
     PY=$(find_python)
-    if [ -z "$PY" ]; then echo "找不到 Python 3.10+。请先安装 Python 3.13（python.org）后再双击。"; read -r; exit 1; fi
+    if [ -z "$PY" ]; then echo "Python 3.10+ not found. Install Python 3.13 from python.org, then double-click again."; read -r; exit 1; fi
     [ -x venv/bin/python ] || "$PY" -m venv venv
     venv/bin/pip install -q -r requirements.txt
   fi
@@ -33,7 +33,7 @@ fi
 venv/bin/python scripts/import_keys.py
 
 if curl -fs "$URL/api/health" >/dev/null 2>&1; then
-  echo "程序已经在运行，直接打开浏览器：$URL"
+  echo "Already running. Opening the browser: $URL"
   [ -n "$NO_BROWSER" ] || open "$URL" 2>/dev/null || true
   exit 0
 fi
@@ -47,6 +47,6 @@ for _ in $(seq 1 80); do
 done
 [ -n "$NO_BROWSER" ] || open "$URL" 2>/dev/null || xdg-open "$URL" 2>/dev/null || true
 echo ""
-echo "✅ 命名博弈模拟器已启动：$URL"
-echo "   关闭这个窗口（或按 Ctrl+C）即可停止程序。"
+echo "Naming Game Simulator is running at $URL"
+echo "   Close this window (or press Ctrl+C) to stop it."
 wait $PID

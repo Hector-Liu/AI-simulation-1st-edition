@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import json
 import os
 import re
 import zipfile
@@ -20,12 +21,23 @@ from pydantic import BaseModel, ValidationError
 from . import runner
 from .config import ExperimentConfig
 from .labels import get_labels, load_label_sets
-from .llm import ANTHROPIC_PROFILES, ENV_PATH, PRICING, PROVIDER_ENV, api_key, load_env
+from .llm import (CLAUDE_MODELS, ENV_PATH, PRICING, PROVIDER_ENV, AnthropicModel, FatalModelError,
+                  RetryableError, api_key, load_env)
 from .metrics import choice_model_rows
 from .store import RunStore, find_run, list_runs, sanitize
+from .transcript import dyad_rows, transcript_csv, transcript_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
+LOCAL_SETTINGS = ROOT / "local_settings.json"  # gitignored per-machine preferences
+DEFAULT_MODEL = "claude-haiku-4-5"
+
+
+def _local_settings() -> dict:
+    try:
+        return json.loads(LOCAL_SETTINGS.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 app = FastAPI(title="Naming Game Simulator", version="1.0")
 
@@ -63,10 +75,38 @@ def meta():
     return _json({
         "label_sets": load_label_sets(),
         "providers": {p: {"env": env, "has_key": api_key(p) is not None} for p, env in PROVIDER_ENV.items()},
-        "anthropic_models": list(ANTHROPIC_PROFILES),
+        "claude_models": CLAUDE_MODELS,
+        "default_model": _local_settings().get("default_model", DEFAULT_MODEL),
         "pricing": PRICING,
         "env_path": str(ENV_PATH),
     })
+
+
+class DefaultModelBody(BaseModel):
+    model_id: str
+
+
+@app.post("/api/settings/default-model")
+def set_default_model(body: DefaultModelBody):
+    if not re.fullmatch(r"claude-[a-z0-9\-\.]+", body.model_id):
+        raise HTTPException(400, "not a Claude model id")
+    st = _local_settings()
+    st["default_model"] = body.model_id
+    LOCAL_SETTINGS.write_text(json.dumps(st, indent=2) + "\n")
+    return {"ok": True, "default_model": body.model_id}
+
+
+@app.post("/api/models/test")
+def test_model(body: DefaultModelBody):
+    """One tiny real call (a few tokens) to check the key and the model id."""
+    try:
+        m = AnthropicModel(body.model_id, None, 8)
+        res = m.complete("Reply with only the word: ready", 0)
+    except (FatalModelError, RetryableError) as ex:
+        return _json({"ok": False, "error": str(ex)})
+    return _json({"ok": True, "reply": res.text, "model_version": res.model_version,
+                  "tokens_in": res.tokens_in, "tokens_out": res.tokens_out, "latency_ms": res.latency_ms,
+                  "effective_temperature": res.effective_temperature})
 
 
 class KeyBody(BaseModel):
@@ -220,6 +260,24 @@ def run_calls(run_id: str, limit: int = 50):
 @app.get("/api/runs/{run_id}/interactions")
 def run_interactions(run_id: str, limit: int = 200):
     return _json(_store(run_id).read_csv("interactions.csv")[:limit])
+
+
+@app.get("/api/runs/{run_id}/dyads")
+def run_dyads(run_id: str, round_from: int | None = None, round_to: int | None = None):
+    return _json(dyad_rows(_store(run_id), round_from, round_to))
+
+
+@app.get("/api/runs/{run_id}/transcript.csv")
+def run_transcript_csv(run_id: str):
+    return Response(transcript_csv(_store(run_id)), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{run_id}_transcript.csv"'})
+
+
+@app.get("/api/runs/{run_id}/transcript.txt")
+def run_transcript_txt(run_id: str, prompts: bool = False):
+    name = f"{run_id}_transcript{'_with_prompts' if prompts else ''}.txt"
+    return Response(transcript_text(_store(run_id), include_prompts=prompts), media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.post("/api/runs/{run_id}/resume")

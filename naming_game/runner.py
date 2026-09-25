@@ -65,6 +65,11 @@ def estimate(cfg: ExperimentConfig) -> dict:
     avg_chars = (len(prompts["first_round"]) + len(prompts["with_memory"])) / 2
     tokens_in = int(avg_chars / 3.5) + 8  # rough; the calls log records real usage
     tokens_out = 4
+    uncertain = False
+    if cfg.model and cfg.model.provider == "anthropic":
+        from .llm import ANTHROPIC_PROFILES
+        if ANTHROPIC_PROFILES.get(cfg.model.model_id, {}).get("thinking") == "always":
+            tokens_out, uncertain = 300, True  # hidden reasoning tokens are billed; rough guess
     provider = cfg.model.provider if cfg.model else "mock"
     model_id = cfg.model.model_id if cfg.model else "mock"
     price = PRICING.get("mock" if provider == "mock" else model_id)
@@ -73,7 +78,7 @@ def estimate(cfg: ExperimentConfig) -> dict:
     cost = None if price is None else (total_in * price[0] + total_out * price[1]) / 1e6
     return {"calls": calls, "est_input_tokens": int(total_in), "est_output_tokens": int(total_out),
             "est_cost_usd": cost, "price_per_mtok": price, "pricing_known": price is not None,
-            "paid": provider != "mock" and calls > 0,
+            "paid": provider != "mock" and calls > 0, "output_estimate_uncertain": uncertain,
             "model_notes": model_notes(provider, model_id) if cfg.model else []}
 
 

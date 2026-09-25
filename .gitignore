@@ -10,3 +10,4 @@ __pycache__/
 # run outputs (can be large; share via export zip)
 logs/
 .DS_Store
+local_settings.json

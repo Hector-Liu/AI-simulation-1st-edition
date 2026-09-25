@@ -37,9 +37,9 @@ def main():
         lines += [f"{k}={v}" for k, v in add.items()]
         NEW.write_text("\n".join(lines) + "\n")
         os.chmod(NEW, 0o600)
-        print("已从旧项目导入密钥：" + ", ".join(add))
+        print("Imported API keys from the old Concordia builder: " + ", ".join(add))
     present = [k for k in NAMES if real(read(NEW).get(k))]
-    print("可用的 API 密钥：" + (", ".join(present) if present else "无（可在网页的「API 密钥」页填写）"))
+    print("API keys available: " + (", ".join(present) if present else "none (add one on the API & Models page)"))
 
 
 if __name__ == "__main__":

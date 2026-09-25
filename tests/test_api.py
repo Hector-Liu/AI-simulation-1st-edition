@@ -40,3 +40,41 @@ def test_dry_run():
 def test_runs_listing_reads_store(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "LOGS_DIR", tmp_path)
     assert store.list_runs(tmp_path) == []
+
+
+def test_transcripts_match_interactions(tmp_path):
+    import asyncio
+
+    from conftest import make_config
+    from naming_game.scheduler import Simulation
+    from naming_game.store import RunStore
+    from naming_game.transcript import dyad_rows, transcript_csv, transcript_text
+
+    cfg = make_config(experiment_id="rewarded_naming", reward_mode="local_match", feedback_mode="numeric_score",
+                      n_rounds=4)
+    sim = Simulation(cfg, store=RunStore.for_config(cfg, tmp_path))
+    asyncio.run(sim.run())
+    rows = dyad_rows(sim.store)
+    inter = sim.store.read_csv("interactions.csv")
+    assert len(rows) == len(inter) // 2 == 4 * 6
+    by_agent = {(r["round"], r["agent_id"]): r for r in inter}
+    for d in rows:
+        a = by_agent[(str(d["round"]), d["agent_a"])]
+        assert a["partner_id"] == d["agent_b"] and a["choice"] == d["choice_a"] and a["partner_choice"] == d["choice_b"]
+    assert transcript_csv(sim.store).count("\n") == len(rows) + 1
+    txt = transcript_text(sim.store)
+    assert "── Round 3" in txt and f"{rows[0]['agent_a']} ({rows[0]['choice_a']}) × {rows[0]['agent_b']}" in txt
+    full = transcript_text(sim.store, include_prompts=True)
+    assert "Choose exactly one label from this list:" in full and "raw output:" in full
+    assert len(dyad_rows(sim.store, 2, 2)) == 6
+
+
+def test_models_catalog_and_default(tmp_path, monkeypatch):
+    import naming_game.api as api_mod
+    monkeypatch.setattr(api_mod, "LOCAL_SETTINGS", tmp_path / "local_settings.json")
+    m = client.get("/api/meta").json()
+    ids = [x["id"] for x in m["claude_models"]]
+    assert "claude-haiku-4-5" in ids and m["default_model"] == "claude-haiku-4-5"
+    assert client.post("/api/settings/default-model", json={"model_id": "claude-sonnet-5"}).json()["ok"]
+    assert client.get("/api/meta").json()["default_model"] == "claude-sonnet-5"
+    assert client.post("/api/settings/default-model", json={"model_id": "gpt-4o"}).status_code == 400

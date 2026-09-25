@@ -23,6 +23,7 @@ UI) in a much smaller codebase:
 | `store.py` | append-only analyst store (§6) |
 | `metrics.py` | population metrics, run summary, Study 0 prior + gate, H3 export |
 | `runner.py` | background jobs, cost estimate, matrix expansion, dry run |
+| `transcript.py` | readable per-round transcripts (who met whom, choices, outcome) as .txt and .csv |
 | `api.py`, `web/` | local web app (single process) |
 | `cli.py` | command line |
 
@@ -40,11 +41,11 @@ UI) in a much smaller codebase:
 10. **Modal-label ties** in `population.csv`: the alphabetically first label.
 11. **p0** is an explicit config field (hashed). If it is empty, p0 is uniform. After Study 0, copy `p0_smoothed` (add-0.5 smoothing) from the calibration run into later configs for the same label set.
 12. **Label screening data.** Snapshots of `/usr/share/dict/web2` (3–6 letters) and `propernames` are bundled, together with a small hand-made brand list. Words from other languages are **not** screened (e.g. *Soru* means "question" in Turkish). Check label sets by eye before pre-registration.
-13. **Anthropic sampling.** Temperature is sent only to models that accept it (Haiku 4.5, Sonnet/Opus 4.6). Opus 4.7+/Sonnet 5/Opus 5 reject temperature, so the provider default is used and logged. Sonnet 5 and Opus 5 get `thinking: {type: disabled}`. Opus 5.5 and Fable cannot disable reasoning and are flagged in the UI and the manifest. No seed is ever sent to a provider.
+13. **Anthropic sampling.** Temperature is sent only to models that accept it (Haiku 4.5, Sonnet/Opus 4.6). Opus 4.7+/Sonnet 5/Opus 5 reject temperature, so the provider default is used and logged. Sonnet 5 and Opus 5 get `thinking: {type: disabled}`. Opus 5.5 and Fable cannot disable reasoning: they are flagged in the UI and the manifest, sent `output_config.effort = low`, and given a 2048-token output floor so hidden reasoning is not cut off (the effective cap is logged per call). No seed is ever sent to a provider.
 
 ## Verified
 
-- `pytest`: 53 tests, including SPEC §8 tests 1–15, run offline with the mock model.
+- `pytest`: 55 tests, including SPEC §8 tests 1–15, run offline with the mock model.
 - Test 13 frozen value: over 1000 seeds, `majority_H` (N = 24, H = 5, 100 rounds) reaches consensus in 100 % of seeds. The regression floor is 0.99.
 - One real smoke run: `claude-haiku-4-5`, 12 agents × 3 rounds = 37 calls (one prose answer was retried). Leakage passed, 0 invalid after retry, about $0.007. It is a plumbing test only and is not data.
 

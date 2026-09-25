@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,165 +7,266 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <div class="brand">Naming Game Simulator <span class="muted">· AI simulation 2nd</span></div>
-  <nav>
-    <button data-tab="setup" class="active">实验设置</button>
-    <button data-tab="monitor">运行监控</button>
-    <button data-tab="results">结果</button>
-    <button data-tab="settings">API 密钥</button>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="3.2"/><circle cx="18" cy="6" r="3.2"/><circle cx="18" cy="18" r="3.2"/><path d="M9 11 15 7.5M9 13l6 3.5" fill="none" stroke-width="1.6"/></svg>
+    <span>Naming Game Simulator</span>
+  </div>
+  <nav aria-label="Main">
+    <button data-tab="setup" class="active" aria-current="page">1 · Setup</button>
+    <button data-tab="monitor">2 · Monitor <span class="dot" id="live-dot" hidden></span></button>
+    <button data-tab="results">3 · Results</button>
+    <button data-tab="settings">API &amp; Models</button>
   </nav>
 </header>
 
-<main>
-<!-- ============================ SETUP ============================ -->
-<section id="tab-setup" class="tab active">
-  <div class="cols">
-    <form id="cfg" class="panel" onsubmit="return false">
-      <h2>预设 Presets</h2>
-      <div class="presets" id="presets"></div>
+<main id="main">
+<!-- =============================== SETUP =============================== -->
+<section id="tab-setup" class="tab active" aria-label="Setup">
+  <div class="layout">
+    <form id="cfg" class="steps" novalidate onsubmit="return false">
 
-      <h2>实验 Experiment</h2>
-      <div class="grid">
-        <label>experiment_id
-          <select name="experiment_id">
-            <option>no_reward_convergence</option><option>rewarded_naming</option>
-            <option>prior_calibration</option><option>null_model</option>
-          </select></label>
-        <label>label_set_id <select name="label_set_id"></select></label>
-        <label>seed <input name="seed" type="number" min="0" value="0"></label>
-        <label>n_agents <select name="n_agents"><option>12</option><option selected>24</option><option>48</option><option>20</option></select></label>
-        <label>n_rounds <input name="n_rounds" type="number" min="1" value="300"></label>
-        <label>pairing <select name="pairing"><option>random_dyad</option><option>star</option><option>community</option><option>isolated</option></select></label>
-        <label class="topo community">n_blocks <input name="n_blocks" type="number" min="2" value="2"></label>
-        <label class="topo community">p_within <input name="p_within" type="number" step="0.05" min="0.05" max="1" value="0.9"></label>
-        <label class="topo star">hub_id <input name="hub_id" value="a00"></label>
-      </div>
+      <section class="card step" aria-labelledby="s1">
+        <div class="step-head"><span class="num">1</span><div><h2 id="s1">Start from a condition</h2>
+          <p class="hint">Pick the cell of the design you want to run. Every setting below is filled in for you; change only what you need.</p></div></div>
+        <div id="presets" class="presets"></div>
+        <p class="hint" id="preset-state"></p>
+      </section>
 
-      <h2>记忆 Memory</h2>
-      <div class="grid">
-        <label>memory_mode <select name="memory_mode"><option>own_interactions_only</option><option>none</option></select></label>
-        <label class="mem">memory_content <select name="memory_content"><option>own_and_partner</option><option>own_only</option></select></label>
-        <label class="mem">memory_horizon_H <input name="memory_horizon_H" type="number" min="1" value="5"></label>
-        <label class="mem">memory_order <select name="memory_order"><option>newest_first</option><option>oldest_first</option></select></label>
-      </div>
+      <section class="card step" aria-labelledby="s2">
+        <div class="step-head"><span class="num">2</span><div><h2 id="s2">Population and schedule</h2>
+          <p class="hint">How many agents, how long the run lasts, and who can be paired with whom.</p></div></div>
+        <div class="grid">
+          <div class="field" data-field="n_agents"><label for="n_agents">Number of agents</label>
+            <select id="n_agents" name="n_agents"><option>12</option><option selected>24</option><option>48</option><option value="20">20 (calibration only)</option></select></div>
+          <div class="field" data-field="n_rounds"><label for="n_rounds">Rounds</label>
+            <input id="n_rounds" name="n_rounds" type="number" min="1" value="300">
+            <p class="help">In random pairing every agent acts once per round.</p></div>
+          <div class="field" data-field="seed"><label for="seed">Seed</label>
+            <input id="seed" name="seed" type="number" min="0" value="0">
+            <p class="help">Same seed + same settings = same pairings and label orders.</p></div>
+          <div class="field wide" data-field="label_set_id"><label for="label_set_id">Label set</label>
+            <select id="label_set_id" name="label_set_id"></select>
+            <div class="chips" id="label-chips" aria-live="polite"></div></div>
+        </div>
+        <fieldset class="field wide" data-field="pairing"><legend>Who meets whom each round</legend>
+          <div class="radio-cards" id="pairing-cards">
+            <label><input type="radio" name="pairing" value="random_dyad" checked><span><b>Random pairs</b><small>Everyone is paired at random each round.</small></span></label>
+            <label><input type="radio" name="pairing" value="community"><span><b>Communities</b><small>Mostly paired within their own block.</small></span></label>
+            <label><input type="radio" name="pairing" value="star"><span><b>Star (hub)</b><small>One hub meets one random leaf per round.</small></span></label>
+            <label><input type="radio" name="pairing" value="isolated"><span><b>Isolated</b><small>No partners. Prior calibration only.</small></span></label>
+          </div>
+        </fieldset>
+        <div class="grid" id="topo-fields">
+          <div class="field show-community" data-field="n_blocks"><label for="n_blocks">Number of blocks</label><input id="n_blocks" name="n_blocks" type="number" min="2" value="2"></div>
+          <div class="field show-community" data-field="p_within"><label for="p_within">Chance of pairing within own block</label><input id="p_within" name="p_within" type="number" step="0.05" min="0.05" max="1" value="0.9"></div>
+          <div class="field show-star" data-field="hub_id"><label for="hub_id">Hub agent</label><input id="hub_id" name="hub_id" value="a00"></div>
+        </div>
+      </section>
 
-      <h2>奖励与反馈 Reward &amp; feedback</h2>
-      <div class="grid">
-        <label>reward_mode <select name="reward_mode"><option>none</option><option>local_match</option></select></label>
-        <label>feedback_mode <select name="feedback_mode"><option>choices_only</option><option>numeric_score</option><option>match_indicator</option></select></label>
-        <label class="rew">payoff.match <input name="payoff_match" type="number" value="100"></label>
-        <label class="rew">payoff.mismatch <input name="payoff_mismatch" type="number" value="-50"></label>
-        <label class="check rew"><input name="show_cumulative_points" type="checkbox" checked> show_cumulative_points</label>
-        <label class="check"><input name="show_own_agent_id" type="checkbox" checked> show_own_agent_id</label>
-        <label class="check"><input name="robustness_cell" type="checkbox"> robustness_cell</label>
-      </div>
+      <section class="card step" aria-labelledby="s3">
+        <div class="step-head"><span class="num">3</span><div><h2 id="s3">Memory</h2>
+          <p class="hint">What each agent sees about its own past pairings. Agents never see other pairs or any group statistics.</p></div></div>
+        <label class="switch field" data-field="memory_mode"><input type="checkbox" id="memory_on" name="memory_on" checked><span class="track" aria-hidden="true"></span>
+          <span>Agents remember their own recent interactions</span></label>
+        <div class="grid show-memory">
+          <fieldset class="field wide" data-field="memory_content"><legend>What each memory record shows</legend>
+            <div class="radio-cards two">
+              <label><input type="radio" name="memory_content" value="own_and_partner" checked><span><b>My choice and my partner's choice</b><small>Standard naming game.</small></span></label>
+              <label><input type="radio" name="memory_content" value="own_only"><span><b>My choice only</b><small>Control: removes social information (B+1/B+2).</small></span></label>
+            </div></fieldset>
+          <div class="field" data-field="memory_horizon_H"><label for="memory_horizon_H">How many past interactions (H)</label>
+            <input id="memory_horizon_H" name="memory_horizon_H" type="number" min="1" value="5"></div>
+        </div>
+      </section>
 
-      <h2>智能体策略 Policy &amp; model</h2>
-      <div class="grid">
-        <label>policy_default <select name="policy_default"><option>llm</option><option>majority_H</option><option>voter</option><option>prior_sample</option></select></label>
-        <label class="voter">voter q <input name="q" type="number" step="0.05" min="0" max="1" value="0.5"></label>
-        <label class="llm">provider <select name="provider"><option>anthropic</option><option>mock</option><option>openai</option><option>deepseek</option></select></label>
-        <label class="llm">model_id <input name="model_id" list="models" value="claude-haiku-4-5"></label>
-        <label class="llm">temperature <input name="temperature" type="number" step="0.1" min="0.1" placeholder="provider default"></label>
-        <label class="llm">max_tokens_cap <input name="max_tokens_cap" type="number" min="1" value="16"></label>
-        <label class="llm">max_concurrency <input name="max_concurrency" type="number" min="1" value="24"></label>
-        <label class="mock">mock_mode <select name="mock_mode"><option>uniform</option><option>majority</option></select></label>
-        <label class="mock">mock_invalid_rate <input name="mock_invalid_rate" type="number" step="0.01" min="0" max="0.9" value="0"></label>
-        <label class="wide">p0 (逗号分隔，留空=均匀) <input name="p0" placeholder="来自 Study 0 校准结果 p0_smoothed"></label>
-      </div>
-      <datalist id="models"></datalist>
+      <section class="card step" aria-labelledby="s4">
+        <div class="step-head"><span class="num">4</span><div><h2 id="s4">Reward</h2>
+          <p class="hint">Whether matching the partner earns points. The two reward arms produce identical prompts except for the scoring text.</p></div></div>
+        <fieldset class="field wide" data-field="reward_mode"><legend>Reward for matching</legend>
+          <div class="radio-cards two">
+            <label><input type="radio" name="reward_mode" value="none" checked><span><b>No reward</b><small>Agents only see choices.</small></span></label>
+            <label><input type="radio" name="reward_mode" value="local_match"><span><b>Points for matching</b><small>Pair-level payoff; no group reward.</small></span></label>
+          </div></fieldset>
+        <div class="grid">
+          <div class="field show-reward" data-field="payoff"><label for="payoff_match">Points if both choose the same label</label><input id="payoff_match" name="payoff_match" type="number" value="100"></div>
+          <div class="field show-reward" data-field="payoff"><label for="payoff_mismatch">Points if labels differ</label><input id="payoff_mismatch" name="payoff_mismatch" type="number" value="-50"></div>
+          <div class="field" data-field="feedback_mode"><label for="feedback_mode">What memory records include</label>
+            <select id="feedback_mode" name="feedback_mode">
+              <option value="choices_only">Choices only</option>
+              <option value="numeric_score">Choices and points received</option>
+              <option value="match_indicator">Choices and "same / different" (robustness only)</option>
+            </select></div>
+          <label class="check show-points field" data-field="show_cumulative_points"><input type="checkbox" name="show_cumulative_points" checked> Show the agent's running point total</label>
+        </div>
+      </section>
 
-      <h2>坚定少数派 Committed minority</h2>
-      <div class="grid">
-        <label class="check"><input name="minority_on" type="checkbox"> 启用</label>
-        <label class="mino">frac <input name="minority_frac" type="number" step="0.01" value="0.15"></label>
-        <label class="mino">start_rule <select name="minority_start_rule"><option>after_consensus</option><option>round</option></select></label>
-        <label class="mino">start_round <input name="minority_start_round" type="number" value="50"></label>
-      </div>
+      <section class="card step" aria-labelledby="s5">
+        <div class="step-head"><span class="num">5</span><div><h2 id="s5">Who makes the choices</h2>
+          <p class="hint">A Claude model, an offline mock for testing, or a rule-based null model.</p></div></div>
+        <fieldset class="field wide" data-field="policy_default"><legend>Agent type</legend>
+          <div class="radio-cards three">
+            <label><input type="radio" name="agent_kind" value="claude" checked><span><b>Claude model</b><small>Real API calls (paid).</small></span></label>
+            <label><input type="radio" name="agent_kind" value="mock"><span><b>Mock model</b><small>Offline, free. For testing only.</small></span></label>
+            <label><input type="radio" name="agent_kind" value="rule"><span><b>Rule-based null</b><small>No model; a fixed decision rule.</small></span></label>
+          </div></fieldset>
+        <div class="grid show-claude">
+          <div class="field wide" data-field="model"><label for="model_id">Claude model</label>
+            <select id="model_id" name="model_id"></select>
+            <p class="help" id="model-note"></p></div>
+          <div class="field" data-field="temperature"><label for="temperature">Temperature</label>
+            <input id="temperature" name="temperature" type="number" step="0.1" min="0.1" placeholder="Provider default (1.0)">
+            <p class="help" id="temp-note">Leave empty for the provider default.</p></div>
+          <div class="field" data-field="max_tokens_cap"><label for="max_tokens_cap">Max output tokens</label>
+            <input id="max_tokens_cap" name="max_tokens_cap" type="number" min="1" value="16"></div>
+        </div>
+        <div class="grid show-mock">
+          <div class="field"><label for="mock_mode">Mock behaviour</label>
+            <select id="mock_mode" name="mock_mode"><option value="uniform">Uniform random</option><option value="majority">Copy the most frequent partner label</option></select></div>
+          <div class="field"><label for="mock_invalid_rate">Share of invalid answers</label>
+            <input id="mock_invalid_rate" name="mock_invalid_rate" type="number" step="0.01" min="0" max="0.9" value="0"></div>
+        </div>
+        <div class="grid show-rule">
+          <div class="field" data-field="policy_default"><label for="rule_policy">Decision rule</label>
+            <select id="rule_policy" name="rule_policy">
+              <option value="majority_H">majority_H: most frequent partner label in memory</option>
+              <option value="voter">voter(q): copy last partner with probability q</option>
+              <option value="prior_sample">prior_sample: independent draw from p0</option>
+            </select></div>
+          <div class="field show-voter" data-field="policy_params"><label for="q">q (copy probability)</label>
+            <input id="q" name="q" type="number" step="0.05" min="0" max="1" value="0.5"></div>
+        </div>
+      </section>
 
-      <h2>备注 Notes</h2>
-      <textarea name="notes" rows="2" placeholder="只存档，不进入提示词"></textarea>
+      <details class="card step" id="advanced">
+        <summary><span class="num ghost">+</span><span><b>Advanced options</b><small>Label prior, committed minority, robustness factors, other providers.</small></span></summary>
+        <div class="grid">
+          <div class="field wide" data-field="p0"><label for="p0">Label prior p0 (comma-separated; empty = uniform)</label>
+            <input id="p0" name="p0" placeholder="Paste p0_smoothed from a Study 0 calibration run">
+            <p class="help">Used by rule policies and for first moves. One value per label, in label-set order.</p></div>
+          <div class="field" data-field="memory_order"><label for="memory_order">Memory order in the prompt</label>
+            <select id="memory_order" name="memory_order"><option value="newest_first">Newest first</option><option value="oldest_first">Oldest first</option></select></div>
+          <label class="check field" data-field="show_own_agent_id"><input type="checkbox" name="show_own_agent_id" checked> Show "You are participant aXX"</label>
+          <label class="check field" data-field="robustness_cell"><input type="checkbox" name="robustness_cell"> Robustness cell (allows "same / different" feedback)</label>
+          <div class="field" data-field="max_concurrency"><label for="max_concurrency">Parallel API calls</label>
+            <input id="max_concurrency" name="max_concurrency" type="number" min="1" value="24"></div>
+        </div>
+        <h3>Committed minority</h3>
+        <label class="switch field" data-field="committed_minority"><input type="checkbox" name="minority_on"><span class="track" aria-hidden="true"></span><span>Add agents who always choose one fixed label</span></label>
+        <div class="grid show-minority">
+          <div class="field"><label for="minority_frac">Share of agents</label><input id="minority_frac" name="minority_frac" type="number" step="0.01" value="0.15"></div>
+          <div class="field"><label for="minority_start_rule">Starts</label>
+            <select id="minority_start_rule" name="minority_start_rule"><option value="after_consensus">After consensus (or at start round)</option><option value="round">At a fixed round</option></select></div>
+          <div class="field"><label for="minority_start_round">Start round</label><input id="minority_start_round" name="minority_start_round" type="number" value="50"></div>
+        </div>
+        <h3>Other providers</h3>
+        <div class="grid">
+          <div class="field"><label for="provider">LLM provider</label>
+            <select id="provider" name="provider"><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select></div>
+          <div class="field show-otherprov"><label for="other_model_id">Model ID</label><input id="other_model_id" name="other_model_id" placeholder="e.g. gpt-4o-mini"></div>
+        </div>
+        <div class="field wide"><label for="notes">Notes (saved with the run, never sent to agents)</label><textarea id="notes" name="notes" rows="2"></textarea></div>
+      </details>
     </form>
 
-    <div class="side">
-      <div class="panel">
-        <h2>校验与成本 Validation</h2>
-        <div id="validation" class="muted">…</div>
-        <div id="estimate"></div>
-        <label class="check confirm" id="confirm-wrap" hidden><input type="checkbox" id="confirm-cost"> 我已确认上面的费用估算，允许调用付费模型</label>
+    <aside class="side" aria-label="Review and run">
+      <section class="card">
+        <h2>Review &amp; run</h2>
+        <p class="summary" id="design-summary"></p>
+        <div class="kv"><span>Experiment ID</span><code id="exp-id"></code></div>
+        <div id="validation" role="status" aria-live="polite"></div>
+        <div id="estimate" class="stats"></div>
+        <div id="model-warn"></div>
+        <label class="check confirm" id="confirm-wrap" hidden><input type="checkbox" id="confirm-cost"> I have checked the cost estimate and allow paid API calls.</label>
         <div class="actions">
-          <button id="btn-dry" class="secondary">试运行（mock，不联网）</button>
-          <button id="btn-run" class="primary">开始运行</button>
+          <button type="button" id="btn-dry" class="btn secondary">Test offline (mock)</button>
+          <button type="button" id="btn-run" class="btn primary">Start run</button>
         </div>
-        <div id="run-msg" class="muted"></div>
-      </div>
-      <div class="panel">
-        <h2>提示词预览 Prompt preview</h2>
-        <div class="seg" id="preview-seg">
-          <button data-p="this_config.first_round" class="active">本条件·首轮</button>
-          <button data-p="this_config.with_memory">本条件·有记忆</button>
-          <button data-p="other_arm.first_round">另一臂·首轮</button>
-          <button data-p="other_arm.with_memory">另一臂·有记忆</button>
+        <div id="run-msg" role="status" aria-live="polite"></div>
+        <details class="why">
+          <summary>Why is every prompt checked for banned words?</summary>
+          <p>The study asks whether a shared label emerges from pairwise interaction alone. Words such as <i>agree, coordinate, consensus, majority, most, the group</i> would tell agents what to do or reveal group-level information, and reward words (<i>points, score, win</i>) would leak an incentive into the no-reward arm. Either would turn "emergence" into instruction-following. Before a prompt is sent, it is scanned; any hit stops the run and is written to <code>leakage_report.json</code>, which serves as audit evidence for SPEC §7.6 item 6.</p>
+        </details>
+      </section>
+      <section class="card">
+        <h2>Prompt preview</h2>
+        <div class="seg" role="tablist" id="preview-seg">
+          <button type="button" role="tab" data-p="this_config.first_round" class="active">First round</button>
+          <button type="button" role="tab" data-p="this_config.with_memory">With memory</button>
+          <button type="button" role="tab" data-p="other_arm.first_round">Other reward arm</button>
+          <button type="button" role="tab" data-p="other_arm.with_memory">Other arm, with memory</button>
         </div>
-        <pre id="preview" class="prompt"></pre>
-        <p class="muted small">这是发送给模型的完整文本（单条 user 消息，无 system prompt）。标签顺序每条提示词独立打乱；预览里的记忆内容是示例。</p>
-      </div>
-    </div>
+        <pre id="preview" class="prompt" tabindex="0"></pre>
+        <p class="help">The exact text sent as a single user message (no system prompt). Label order is shuffled independently for every prompt; memory lines here are examples.</p>
+      </section>
+    </aside>
   </div>
 </section>
 
-<!-- ============================ MONITOR ============================ -->
-<section id="tab-monitor" class="tab">
-  <div class="panel">
-    <div class="row between">
-      <h2 id="mon-title">当前没有运行</h2>
-      <button id="btn-cancel" class="danger" disabled>停止</button>
+<!-- =============================== MONITOR =============================== -->
+<section id="tab-monitor" class="tab" aria-label="Monitor">
+  <div class="card">
+    <div class="row between wrap">
+      <div><h2 id="mon-title">No run in progress</h2><p class="hint" id="mon-sub">Start a run from Setup to see it here.</p></div>
+      <div class="actions tight">
+        <button type="button" id="btn-open-result" class="btn secondary" hidden>Open results</button>
+        <button type="button" id="btn-cancel" class="btn danger" disabled>Stop run</button>
+      </div>
     </div>
-    <div class="progress"><div id="mon-bar"></div></div>
-    <div class="cards" id="mon-cards"></div>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="mon-progress"><div id="mon-bar"></div></div>
+    <div class="stats" id="mon-cards"></div>
     <div class="chart" id="mon-chart"></div>
-    <pre id="mon-log" class="log"></pre>
+    <details><summary>Event log</summary><pre id="mon-log" class="log"></pre></details>
   </div>
 </section>
 
-<!-- ============================ RESULTS ============================ -->
-<section id="tab-results" class="tab">
-  <div class="panel">
-    <div class="row between"><h2>运行记录 Runs</h2><button id="btn-refresh" class="secondary">刷新</button></div>
-    <p class="muted small">勾选多条运行可叠加比较曲线，并汇总每个种子的最终获胜标签（H4 路径依赖）。</p>
+<!-- =============================== RESULTS =============================== -->
+<section id="tab-results" class="tab" aria-label="Results">
+  <div class="card">
+    <div class="row between wrap"><div><h2>Runs</h2>
+      <p class="hint">Click a run ID to open it. Tick several runs to overlay their curves and compare winning labels across seeds.</p></div>
+      <button type="button" id="btn-refresh" class="btn secondary">Refresh</button></div>
     <div class="table-wrap"><table id="runs-table"></table></div>
   </div>
-  <div class="panel" id="compare" hidden>
-    <h2>比较 Compare</h2>
-    <div class="seg" id="metric-seg">
-      <button data-m="state_entropy_norm" class="active">state_entropy_norm</button>
-      <button data-m="state_modal_share">state_modal_share</button>
-      <button data-m="round_entropy_norm">round_entropy_norm</button>
-      <button data-m="switch_rate">switch_rate</button>
-    </div>
-    <div class="seg" id="axis-seg">
-      <button data-a="round" class="active">x = round</button>
-      <button data-a="t_pc_mean">x = t_pc（人均交互）</button>
+  <div class="card" id="compare" hidden>
+    <h2>Compare selected runs</h2>
+    <div class="row wrap gap">
+      <div class="seg" id="metric-seg" role="tablist">
+        <button type="button" data-m="state_entropy_norm" class="active">Entropy (normalized)</button>
+        <button type="button" data-m="state_modal_share">Share of most common label</button>
+        <button type="button" data-m="switch_rate">Switch rate</button>
+      </div>
+      <div class="seg" id="axis-seg" role="tablist">
+        <button type="button" data-a="round" class="active">x: round</button>
+        <button type="button" data-a="t_pc_mean">x: interactions per agent</button>
+      </div>
     </div>
     <div class="chart" id="cmp-chart"></div>
     <div id="winners"></div>
   </div>
-  <div class="panel" id="detail" hidden></div>
+  <div class="card" id="detail" hidden></div>
 </section>
 
-<!-- ============================ SETTINGS ============================ -->
-<section id="tab-settings" class="tab">
-  <div class="panel narrow">
-    <h2>API 密钥</h2>
-    <p class="muted">密钥只保存在本机的 <code>.env</code> 文件里（不会上传到 GitHub）。</p>
-    <div id="keys"></div>
+<!-- =============================== SETTINGS =============================== -->
+<section id="tab-settings" class="tab" aria-label="API and models">
+  <div class="card narrow">
+    <h2>API keys</h2>
+    <p class="hint">Keys are stored only in this computer's <code>.env</code> file and are never uploaded.</p>
+    <div id="keys" class="keys"></div>
     <div class="grid">
-      <label>provider <select id="key-provider"><option>anthropic</option><option>openai</option><option>deepseek</option></select></label>
-      <label class="wide">API key <input id="key-value" type="password" autocomplete="off"></label>
+      <div class="field"><label for="key-provider">Provider</label>
+        <select id="key-provider"><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select></div>
+      <div class="field wide"><label for="key-value">API key</label><input id="key-value" type="password" autocomplete="off"></div>
     </div>
-    <div class="actions"><button id="btn-key" class="primary">保存</button></div>
-    <div id="key-msg" class="muted"></div>
+    <div class="actions"><button type="button" id="btn-key" class="btn primary">Save key</button></div>
+    <div id="key-msg" role="status" aria-live="polite"></div>
+  </div>
+  <div class="card">
+    <div class="row between wrap"><div><h2>Claude models</h2>
+      <p class="hint">Choose the default model for new runs. You can still switch per run in Setup, step 5. "Test" sends one tiny request (about $0.0001).</p></div></div>
+    <div class="table-wrap"><table id="models-table"></table></div>
+    <div id="model-msg" role="status" aria-live="polite"></div>
   </div>
 </section>
 </main>

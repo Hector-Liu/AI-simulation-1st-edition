@@ -26,34 +26,44 @@ PROVIDER_ENV = {
     "deepseek": "DEEPSEEK_API_KEY",
 }
 
-# Price per 1M tokens (input, output) in USD. Maintain by hand; check the
-# provider's price page before any batch (SPEC §10).
-PRICING = {
-    "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-sonnet-5": (2.00, 10.00),
-    "claude-opus-4-6": (5.00, 25.00),
-    "claude-opus-4-7": (5.00, 25.00),
-    "claude-opus-4-8": (5.00, 25.00),
-    "claude-opus-5": (5.00, 25.00),
-    "mock": (0.0, 0.0),
-}
-
-# Anthropic model behaviour relevant to the design (temperature control, and
-# whether hidden reasoning can be switched off). Unknown models: try
-# temperature, and flag.
-ANTHROPIC_PROFILES = {
-    "claude-haiku-4-5": {"temperature": True, "thinking": "off_by_default"},
-    "claude-sonnet-4-6": {"temperature": True, "thinking": "off_by_default"},
-    "claude-opus-4-6": {"temperature": True, "thinking": "off_by_default"},
-    "claude-opus-4-7": {"temperature": False, "thinking": "off_by_default"},
-    "claude-opus-4-8": {"temperature": False, "thinking": "off_by_default"},
-    "claude-sonnet-5": {"temperature": False, "thinking": "disable"},
-    "claude-opus-5": {"temperature": False, "thinking": "disable"},
-    "claude-opus-5-5": {"temperature": False, "thinking": "always"},
-    "claude-fable-5": {"temperature": False, "thinking": "always"},
-    "claude-fable-5-1": {"temperature": False, "thinking": "always"},
-}
+# Claude models offered in the UI. Price per 1M tokens (input, output) in USD;
+# check the provider's price page before any batch (SPEC §10).
+# temperature: whether the API accepts a temperature parameter.
+# thinking: off_by_default (no hidden reasoning unless requested) |
+#           disable (on by default; the engine sends thinking={type: disabled}) |
+#           always (cannot be disabled; flagged as a reasoning model)
+CLAUDE_MODELS = [
+    {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "price": (1.00, 5.00),
+     "temperature": True, "thinking": "off_by_default",
+     "note": "Cheapest; accepts temperature; no hidden reasoning. Good default for pilots."},
+    {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "price": (3.00, 15.00),
+     "temperature": True, "thinking": "off_by_default",
+     "note": "Mid-size; accepts temperature; no hidden reasoning."},
+    {"id": "claude-sonnet-5", "name": "Claude Sonnet 5", "price": (2.00, 10.00),
+     "temperature": False, "thinking": "disable",
+     "note": "Temperature fixed at provider default; thinking switched off by the engine."},
+    {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "price": (5.00, 25.00),
+     "temperature": True, "thinking": "off_by_default", "note": "Large; accepts temperature."},
+    {"id": "claude-opus-4-7", "name": "Claude Opus 4.7", "price": (5.00, 25.00),
+     "temperature": False, "thinking": "off_by_default", "note": "Temperature fixed at provider default."},
+    {"id": "claude-opus-4-8", "name": "Claude Opus 4.8", "price": (5.00, 25.00),
+     "temperature": False, "thinking": "off_by_default", "note": "Temperature fixed at provider default."},
+    {"id": "claude-opus-5", "name": "Claude Opus 5", "price": (5.00, 25.00),
+     "temperature": False, "thinking": "disable",
+     "note": "Temperature fixed at provider default; thinking switched off by the engine."},
+    {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "price": (4.00, 20.00),
+     "temperature": False, "thinking": "always",
+     "note": "Reasoning cannot be disabled (flagged). Not recommended for confirmatory cells."},
+    {"id": "claude-fable-5-1", "name": "Claude Fable 5.1", "price": (10.00, 50.00),
+     "temperature": False, "thinking": "always",
+     "note": "Most capable and most expensive; reasoning cannot be disabled (flagged)."},
+]
+PRICING = {m["id"]: m["price"] for m in CLAUDE_MODELS}
+PRICING["mock"] = (0.0, 0.0)
+ANTHROPIC_PROFILES = {m["id"]: {"temperature": m["temperature"], "thinking": m["thinking"]} for m in CLAUDE_MODELS}
+# Models whose reasoning cannot be switched off need room for hidden reasoning
+# tokens; the effective cap is logged per call.
+REASONING_MIN_MAX_TOKENS = 2048
 PROVIDER_DEFAULT_TEMPERATURE = {"anthropic": 1.0, "openai": 1.0, "deepseek": 1.0}
 
 
@@ -177,7 +187,13 @@ class AnthropicModel:
     def complete(self, prompt: str, call_seed: int) -> CallResult:
         del call_seed  # never forwarded: the API takes no seed
         messages = [{"role": "user", "content": prompt}]
-        params = {"model": self.model_id, "max_tokens": self.max_tokens_cap, "messages": messages}
+        max_tokens = self.max_tokens_cap
+        if self.profile["thinking"] == "always":
+            max_tokens = max(max_tokens, REASONING_MIN_MAX_TOKENS)
+            params_extra = {"output_config": {"effort": "low"}}
+        else:
+            params_extra = {}
+        params = {"model": self.model_id, "max_tokens": max_tokens, "messages": messages, **params_extra}
         eff_t = PROVIDER_DEFAULT_TEMPERATURE["anthropic"] if self.profile["temperature"] else None
         if self.temperature is not None and self.profile["temperature"]:
             params["temperature"] = self.temperature
@@ -199,7 +215,7 @@ class AnthropicModel:
         usage = resp.usage
         return CallResult(text=text, model_version=resp.model, finish_reason=resp.stop_reason,
                           tokens_in=usage.input_tokens, tokens_out=usage.output_tokens, latency_ms=latency,
-                          effective_temperature=eff_t, effective_max_tokens=self.max_tokens_cap,
+                          effective_temperature=eff_t, effective_max_tokens=max_tokens,
                           provider_messages=messages,
                           request_params={k: v for k, v in params.items() if k != "messages"})
 

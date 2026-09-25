@@ -7,8 +7,13 @@ const {
   ShadingType, BorderStyle, AlignmentType, LevelFormat, Footer, PageNumber, TableOfContents,
 } = require("docx");
 
-const [, , inPath, outPath] = process.argv;
+const [, , inPath, outPath, footerArg] = process.argv;
 const lines = fs.readFileSync(inPath, "utf8").replace(/\r/g, "").split("\n");
+const docTitle = (lines.find((l) => /^#\s/.test(l)) || "# Document").replace(/^#\s+/, "").replace(/\*\*|`/g, "");
+const footerLabel = footerArg || docTitle;
+const zh = /[\u4e00-\u9fff]/.test(docTitle);
+const TOC_TITLE = zh ? "目录" : "Contents";
+const TOC_HINT = zh ? "（如果目录为空或页码不对：在 Word 中右键目录 → 更新域。）" : "(If the table of contents is empty, right-click it in Word and choose Update Field.)";
 
 const LATIN = "Calibri", CJK = "PingFang SC", MONO = "Menlo";
 const font = { ascii: LATIN, hAnsi: LATIN, eastAsia: CJK, cs: LATIN };
@@ -98,9 +103,9 @@ while (i < lines.length) {
   if (/^---+$/.test(l.trim())) {
     children.push(ruleParagraph());
     if (!tocInserted) {  // table of contents after the title block
-      children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: inline("目录") }),
-        new TableOfContents("目录", { hyperlink: true, headingStyleRange: "1-2" }),
-        new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: "（如果目录为空或页码不对：在 Word 中右键目录 → 更新域。）", font, size: 18, color: "667085" })] }),
+      children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: inline(TOC_TITLE) }),
+        new TableOfContents(TOC_TITLE, { hyperlink: true, headingStyleRange: "1-2" }),
+        new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: TOC_HINT, font, size: 18, color: "667085" })] }),
         ruleParagraph());
       tocInserted = true;
     }
@@ -168,7 +173,7 @@ while (i < lines.length) {
 }
 
 const doc = new Document({
-  creator: "Naming Game Simulator", title: "LLM 命名博弈实验：研究假设、软件功能、操作步骤与原理",
+  creator: "Naming Game Simulator", title: docTitle,
   features: { updateFields: true },
   styles: {
     default: { document: { run: { font, size: 21 }, paragraph: { spacing: { line: 300 } } } },
@@ -185,7 +190,7 @@ const doc = new Document({
   sections: [{
     properties: { page: { size: { width: PAGE_W, height: 15840 }, margin: { top: 1200, bottom: 1200, left: MARGIN, right: MARGIN } } },
     footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER,
-      children: [new TextRun({ font, size: 17, color: "667085", children: ["LLM 命名博弈实验 · 审阅稿 v0.1 · 第 ", PageNumber.CURRENT, " 页"] })] })] }) },
+      children: [new TextRun({ font, size: 17, color: "667085", children: [`${footerLabel} · `, PageNumber.CURRENT] })] })] }) },
     children,
   }],
 });

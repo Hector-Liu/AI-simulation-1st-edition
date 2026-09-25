@@ -2,6 +2,13 @@
   "name": "naming-game-docs",
   "private": true,
   "description": "Builds docs/*.docx from docs/*.md",
-  "scripts": { "build": "node md2docx.js ../../docs/Naming_Game_Experiment_Guide.md ../../docs/Naming_Game_Experiment_Guide.docx" },
-  "dependencies": { "docx": "^9.0.0" }
+  "scripts": {
+    "build": "npm run build:guide && npm run build:review && npm run build:spec2",
+    "build:guide": "node md2docx.js ../../docs/Naming_Game_Experiment_Guide.md ../../docs/Naming_Game_Experiment_Guide.docx \"LLM \u547d\u540d\u535a\u5f08\u5b9e\u9a8c \u00b7 \u5ba1\u9605\u7a3f v0.1\"",
+    "build:review": "node md2docx.js ../../docs/Review_Response_and_Design_v2.md ../../docs/Review_Response_and_Design_v2.docx \"\u5ba1\u9605\u56de\u5e94\u4e0e\u8bbe\u8ba1 v2 \u8349\u6848\"",
+    "build:spec2": "node md2docx.js ../../docs/SPEC-naming-game-v2.0-draft.md ../../docs/SPEC-naming-game-v2.0-draft.docx \"SPEC v2.0 draft\""
+  },
+  "dependencies": {
+    "docx": "^9.0.0"
+  }
 }

@@ -60,6 +60,9 @@ class ModelSpec(_Frozen):
     # "auto" pins to the version returned by the first call; an exact string
     # pins to that version. A different version aborts the run.
     pin_version: Optional[str] = None
+    # constrained: the API only admits one of the shown labels (JSON enum, in the
+    # shown order). free_text: v1 behaviour, strict parsing of a free answer.
+    answer_mode: Literal["constrained", "free_text"] = "constrained"
 
 
 class RetryPolicy(_Frozen):

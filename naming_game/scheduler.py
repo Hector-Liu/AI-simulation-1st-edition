@@ -21,7 +21,7 @@ from . import metrics
 from .agents import Agent, choose_rule
 from .config import ExperimentConfig
 from .labels import get_labels, guard_prompt, label_set_hash
-from .llm import FatalModelError, RetryableError, call_seed, make_model, model_notes
+from .llm import FatalModelError, RetryableError, call_seed, extract_label_text, make_model, model_notes
 from .parser import parse_label
 from .prompts import build_agent_prompt, template_hashes
 from .store import ROOT, RunStore
@@ -246,27 +246,36 @@ class Simulation:
         self.minority_active = True
 
     # ---- model calls -----------------------------------------------------
-    async def _call(self, sem, prompt: str, t: int, agent_idx: int, attempt: int):
+    async def _call(self, sem, prompt: str, t: int, agent_idx: int, attempt: int, labels_shown=None):
         cfg = self.config
         for k in range(cfg.retry.api_retries + 1):
             if self.cancel_event is not None and self.cancel_event.is_set():
                 raise RunCancelled()
             try:
                 async with sem:
-                    return await asyncio.to_thread(self.model.complete, prompt, call_seed(cfg.seed, t, agent_idx, attempt))
+                    return await asyncio.to_thread(self._complete, prompt, call_seed(cfg.seed, t, agent_idx, attempt), labels_shown)
             except RetryableError:
                 if k == cfg.retry.api_retries:
                     raise
                 await asyncio.sleep(cfg.retry.backoff_s * (2 ** k))
         raise AssertionError("unreachable")
 
-    async def _llm_choice(self, sem, prompt, t, agent_idx, agent_id):
+    def _complete(self, prompt, seed, labels_shown):
+        try:
+            return self.model.complete(prompt, seed, labels_shown=labels_shown)
+        except TypeError as ex:  # models written without the labels_shown argument (tests, plug-ins)
+            if "labels_shown" not in str(ex):
+                raise
+            return self.model.complete(prompt, seed)
+
+    async def _llm_choice(self, sem, prompt, t, agent_idx, agent_id, labels_shown=None):
         calls, parsed, raw, attempts = [], None, "", 0
+        constrained = bool(self.config.model and self.config.model.answer_mode == "constrained")
         for attempt in range(1, self.config.retry.parse_retries + 2):
             attempts = attempt
-            res = await self._call(sem, prompt, t, agent_idx, attempt)
+            res = await self._call(sem, prompt, t, agent_idx, attempt, labels_shown)
             raw = res.text
-            parsed = parse_label(raw, self.labels)
+            parsed = parse_label(extract_label_text(raw, constrained), self.labels)
             if res.model_version:
                 self.model_versions.add(res.model_version)
                 pin = self.config.model.pin_version if self.config.model else None
@@ -321,7 +330,8 @@ class Simulation:
             for ag in d.members:
                 idx = self.index[ag.agent_id]
                 if ag.policy == "llm":
-                    pending.append((ag.agent_id, self._llm_choice(sem, rendered[ag.agent_id][0], t, idx, ag.agent_id)))
+                    pending.append((ag.agent_id, self._llm_choice(sem, rendered[ag.agent_id][0], t, idx, ag.agent_id,
+                                                                  rendered[ag.agent_id][1])))
                 else:
                     lab = choose_rule(ag, cfg, self.labels, self.p0, rng_for(cfg.seed, "policy", t, idx))
                     results[ag.agent_id] = (lab, lab, 1, [])
@@ -474,6 +484,8 @@ class Simulation:
         """Rebuild state from the store (deterministic) and return (sim, next_round)."""
         cfg_json = store.read_json("config.json")
         cfg_json.pop("config_hash", None)
+        if cfg_json.get("model") and "answer_mode" not in cfg_json["model"]:
+            cfg_json["model"]["answer_mode"] = "free_text"  # runs made before answer_mode existed
         cfg = ExperimentConfig(**cfg_json)
         last = store.last_complete_round()
         store.truncate_after(last)

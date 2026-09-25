@@ -94,6 +94,9 @@
           <div id="prior-status" class="help"></div>
         </fieldset>
 
+        <div class="field"><label for="p-answer">Answer format</label>
+          <select id="p-answer"><option value="constrained">Pick from the label list (recommended)</option><option value="free_text">Free text, parsed strictly (v1 behaviour)</option></select>
+          <p class="help">"Pick from the list" uses the API's structured output: the model can only return one of the labels shown, in the shown order. Free text lets the model write anything, and long answers are counted as invalid.</p></div>
         <label class="check"><input type="checkbox" id="p-pin" checked> Stop a run if the model version changes</label>
 
         <div id="p-est" class="stats"></div>
@@ -230,6 +233,8 @@
           <label class="check field" data-field="show_own_agent_id"><input type="checkbox" name="show_own_agent_id"> Show "You are participant aXX" (robustness)</label>
           <label class="check field" data-field="robustness_cell"><input type="checkbox" name="robustness_cell"> Robustness cell (allows "same / different" feedback)</label>
           <label class="check field" data-field="pin"><input type="checkbox" name="pin" checked> Stop if the model version changes</label>
+          <div class="field" data-field="answer_mode"><label for="answer_mode">Answer format</label>
+            <select id="answer_mode" name="answer_mode"><option value="constrained">Pick from the label list (recommended)</option><option value="free_text">Free text, parsed strictly (v1)</option></select></div>
           <div class="field" data-field="max_concurrency"><label for="max_concurrency">Parallel API calls</label><input id="max_concurrency" name="max_concurrency" type="number" min="1" value="24"></div>
         </div>
         <h3>Committed minority</h3>

@@ -8,6 +8,7 @@ tokens, and latency (SPEC §4.3). No seed is ever forwarded to a provider.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import time
@@ -119,6 +120,29 @@ class CallResult:
     request_params: dict = field(default_factory=dict)
 
 
+STRUCTURED_OVERHEAD_TOKENS = 240  # measured on Haiku 4.5: schema + JSON wrapper cost ~240 extra input tokens per call
+
+
+def choice_schema(labels) -> dict:
+    """JSON schema that only admits one of the labels, in the given order.
+
+    The enum order is the label order shown in that prompt, so the schema never
+    carries a fixed order shared by all agents (the order stays randomized)."""
+    return {"type": "object", "properties": {"label": {"type": "string", "enum": list(labels)}},
+            "required": ["label"], "additionalProperties": False}
+
+
+def extract_label_text(raw: str, constrained: bool) -> str:
+    """Constrained answers arrive as {"label": "X"}; return the label text."""
+    if not constrained:
+        return raw
+    try:
+        v = json.loads(raw)
+        return v.get("label", "") if isinstance(v, dict) else ""
+    except (json.JSONDecodeError, TypeError):
+        return raw
+
+
 class RetryableError(Exception):
     pass
 
@@ -136,17 +160,18 @@ class MockModel:
     """
     provider = "mock"
 
-    def __init__(self, model_id="mock", mode="uniform", invalid_rate=0.0):
+    def __init__(self, model_id="mock", mode="uniform", invalid_rate=0.0, answer_mode="constrained"):
         self.model_id = model_id
         self.mode = mode
         self.invalid_rate = invalid_rate
+        self.answer_mode = answer_mode
 
     @staticmethod
     def labels_in_prompt(prompt: str) -> list[str]:
         block = prompt.split("Choose exactly one label from this list:\n", 1)[1].split("\n\n", 1)[0]
         return [ln[2:] for ln in block.splitlines() if ln.startswith("- ")]
 
-    def complete(self, prompt: str, call_seed: int) -> CallResult:
+    def complete(self, prompt: str, call_seed: int, labels_shown=None) -> CallResult:
         rng = np.random.default_rng(call_seed)
         labels = self.labels_in_prompt(prompt)
         if self.invalid_rate and rng.random() < self.invalid_rate:
@@ -164,6 +189,8 @@ class MockModel:
                 text = labels[rng.integers(len(labels))]
         else:
             text = labels[rng.integers(len(labels))]
+        if self.answer_mode == "constrained" and not text.startswith("I would"):
+            text = json.dumps({"label": text})
         return CallResult(text=text, model_version="mock-1", finish_reason="stop", tokens_in=len(prompt) // 4,
                           tokens_out=2, latency_ms=0, effective_temperature=None, effective_max_tokens=None,
                           provider_messages=[{"role": "user", "content": prompt}])
@@ -172,7 +199,8 @@ class MockModel:
 class AnthropicModel:
     provider = "anthropic"
 
-    def __init__(self, model_id: str, temperature: Optional[float], max_tokens_cap: int, timeout: float = 60.0):
+    def __init__(self, model_id: str, temperature: Optional[float], max_tokens_cap: int, timeout: float = 60.0,
+                 answer_mode: str = "constrained"):
         import anthropic
         key = api_key("anthropic")
         if not key:
@@ -183,16 +211,21 @@ class AnthropicModel:
         self.profile = ANTHROPIC_PROFILES.get(model_id, {"temperature": True, "thinking": "off_by_default"})
         self.temperature = temperature
         self.max_tokens_cap = max_tokens_cap
+        self.answer_mode = answer_mode
 
-    def complete(self, prompt: str, call_seed: int) -> CallResult:
+    def complete(self, prompt: str, call_seed: int, labels_shown=None) -> CallResult:
         del call_seed  # never forwarded: the API takes no seed
         messages = [{"role": "user", "content": prompt}]
         max_tokens = self.max_tokens_cap
+        output_config = {}
         if self.profile["thinking"] == "always":
             max_tokens = max(max_tokens, REASONING_MIN_MAX_TOKENS)
-            params_extra = {"output_config": {"effort": "low"}}
-        else:
-            params_extra = {}
+            output_config["effort"] = "low"
+        if self.answer_mode == "constrained" and labels_shown:
+            # structured output: the answer must be one of the labels (JSON enum)
+            output_config["format"] = {"type": "json_schema", "schema": choice_schema(labels_shown)}
+            max_tokens = max(max_tokens, 32)
+        params_extra = {"output_config": output_config} if output_config else {}
         params = {"model": self.model_id, "max_tokens": max_tokens, "messages": messages, **params_extra}
         eff_t = PROVIDER_DEFAULT_TEMPERATURE["anthropic"] if self.profile["temperature"] else None
         if self.temperature is not None and self.profile["temperature"]:
@@ -224,7 +257,7 @@ class AnthropicModel:
 
 class OpenAICompatModel:
     def __init__(self, provider: str, model_id: str, temperature: Optional[float], max_tokens_cap: int,
-                 timeout: float = 60.0):
+                 timeout: float = 60.0, answer_mode: str = "constrained"):
         import openai
         key = api_key(provider)
         if not key:
@@ -237,15 +270,21 @@ class OpenAICompatModel:
         self.temperature = temperature
         self.max_tokens_cap = max_tokens_cap
         self.reasoning = bool(re.match(r"^(o\d|gpt-5)", model_id))
+        self.answer_mode = answer_mode
 
-    def complete(self, prompt: str, call_seed: int) -> CallResult:
+    def complete(self, prompt: str, call_seed: int, labels_shown=None) -> CallResult:
         del call_seed
         messages = [{"role": "user", "content": prompt}]
         params = {"model": self.model_id, "messages": messages}
+        cap = self.max_tokens_cap
+        if self.answer_mode == "constrained" and labels_shown:
+            params["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "label_choice", "strict": True, "schema": choice_schema(labels_shown)}}
+            cap = max(cap, 32)
         if self.provider == "openai":
-            params["max_completion_tokens"] = self.max_tokens_cap
+            params["max_completion_tokens"] = cap
         else:
-            params["max_tokens"] = self.max_tokens_cap
+            params["max_tokens"] = cap
         eff_t = None if self.reasoning else PROVIDER_DEFAULT_TEMPERATURE[self.provider]
         if self.temperature is not None and not self.reasoning:
             params["temperature"] = self.temperature
@@ -267,17 +306,18 @@ class OpenAICompatModel:
                           finish_reason=choice.finish_reason,
                           tokens_in=getattr(usage, "prompt_tokens", None),
                           tokens_out=getattr(usage, "completion_tokens", None), latency_ms=latency,
-                          effective_temperature=eff_t, effective_max_tokens=self.max_tokens_cap,
+                          effective_temperature=eff_t, effective_max_tokens=cap,
                           provider_messages=messages,
                           request_params={k: v for k, v in params.items() if k != "messages"})
 
 
 def make_model(spec):
+    mode = getattr(spec, "answer_mode", "constrained")
     if spec.provider == "mock":
-        return MockModel(spec.model_id, spec.mock_mode, spec.mock_invalid_rate)
+        return MockModel(spec.model_id, spec.mock_mode, spec.mock_invalid_rate, answer_mode=mode)
     if spec.provider == "anthropic":
-        return AnthropicModel(spec.model_id, spec.temperature, spec.max_tokens_cap)
-    return OpenAICompatModel(spec.provider, spec.model_id, spec.temperature, spec.max_tokens_cap)
+        return AnthropicModel(spec.model_id, spec.temperature, spec.max_tokens_cap, answer_mode=mode)
+    return OpenAICompatModel(spec.provider, spec.model_id, spec.temperature, spec.max_tokens_cap, answer_mode=mode)
 
 
 def call_seed(seed: int, round_idx: int, agent_idx: int, attempt: int) -> int:

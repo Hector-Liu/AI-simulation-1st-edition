@@ -329,3 +329,71 @@ def test_unexpected_error_marks_run_failed(tmp_path):
     res = asyncio.run(sim.run())
     assert res["status"] == "failed_error" and "boom" in res["error"]
     assert sim.store.read_json("manifest.json")["status"] == "failed_error"
+
+
+# ---------------------------------------------------------------- answer mode ---
+def test_constrained_answers_use_shown_order_and_are_parsed(tmp_path):
+    seen = []
+
+    class Spy(MockModel):
+        def complete(self, prompt, call_seed, labels_shown=None):
+            seen.append((prompt, list(labels_shown)))
+            return super().complete(prompt, call_seed, labels_shown)
+
+    cfg = room_config("A2", n_rounds=4)
+    assert cfg.model.answer_mode == "constrained"
+    sim = Simulation(cfg, store=RunStore.for_config(cfg, tmp_path), model=Spy(answer_mode="constrained"))
+    res = asyncio.run(sim.run())
+    assert res["summary"]["invalid_rate"] == 0.0
+    for prompt, order in seen:  # enum order == the order printed in that prompt
+        assert MockModel.labels_in_prompt(prompt) == order
+    calls = sim.store.read_jsonl("calls.jsonl")
+    assert all(c["raw_output"].startswith('{"label"') and c["valid"] for c in calls)
+    rows = sim.store.read_csv("interactions.csv")
+    assert all(r["choice"] in get_labels("P1") for r in rows)
+
+
+def test_anthropic_constrained_request(monkeypatch):
+    import anthropic
+
+    from naming_game import llm
+    captured = {}
+
+    class FakeMessages:
+        def create(self, **kw):
+            captured.clear(); captured.update(kw)
+
+            class U:
+                input_tokens, output_tokens = 200, 8
+
+            class B:
+                type, text = "text", '{"label": "Difa"}'
+
+            class R:
+                content, usage, model, stop_reason = [B()], U(), "claude-haiku-4-5-20251001", "end_turn"
+            return R()
+
+    class FakeClient:
+        def __init__(self, **kw):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeClient)
+    monkeypatch.setattr(llm, "api_key", lambda p: "sk-test-key-000000")
+    order = ["Difa", "Bagu", "Feki"]
+    res = llm.AnthropicModel("claude-haiku-4-5", 1.0, 16).complete("prompt", 1, labels_shown=order)
+    schema = captured["output_config"]["format"]["schema"]
+    assert schema["properties"]["label"]["enum"] == order and captured["max_tokens"] >= 32
+    assert llm.extract_label_text(res.text, True) == "Difa"
+    llm.AnthropicModel("claude-haiku-4-5", 1.0, 16, answer_mode="free_text").complete("prompt", 1, labels_shown=order)
+    assert "output_config" not in captured
+
+
+def test_old_runs_resume_as_free_text(tmp_path):
+    cfg = make_config(n_rounds=4)
+    sim = Simulation(cfg, store=RunStore.for_config(cfg, tmp_path))
+    asyncio.run(sim.run(stop_after=1))
+    import json as _json
+    p = sim.store.path("config.json")
+    d = _json.loads(p.read_text()); d["model"].pop("answer_mode"); p.write_text(_json.dumps(d))
+    resumed, nxt = Simulation.resume(sim.store)
+    assert resumed.config.model.answer_mode == "free_text" and nxt == 2

@@ -14,14 +14,15 @@ from .store import RunStore, list_runs
 
 
 def derive_prior(label_set_id: str, source_room: str, provider: str, model_id: str,
-                 temperature, target_phase: str = "pilot") -> dict:
+                 temperature, target_phase: str = "pilot", answer_mode: str = "constrained") -> dict:
     labels = get_labels(label_set_id)
     allowed = {"pilot"} if target_phase == "confirmatory" else {"pilot", "exploratory", "test", "confirmatory"}
     runs = [r for r in list_runs()
             if r.get("cell_id") == source_room and r.get("label_set_id") == label_set_id
             and r.get("provider") == provider and r.get("model") == model_id
             and _same_t(r.get("temperature"), temperature) and r.get("status") == "completed"
-            and r.get("template_version") == "v2" and r.get("phase") in allowed]
+            and r.get("template_version") == "v2" and r.get("phase") in allowed
+            and r.get("answer_mode") == answer_mode]
     counts = Counter()
     for r in runs:
         for row in RunStore(r["dir"]).read_csv("interactions.csv"):
@@ -35,7 +36,7 @@ def derive_prior(label_set_id: str, source_room: str, provider: str, model_id: s
         "available": n > 0, "label_set_id": label_set_id, "labels": list(labels), "source_room": source_room,
         "n_runs": len(runs), "run_ids": [r["run_id"] for r in runs], "n_choices": n,
         "counts": [counts.get(lab, 0) for lab in labels], "p0": raw, "p0_smoothed": smoothed,
-        "source": f"derived:{source_room}:{label_set_id}:{provider}:{model_id}:T={temperature}:runs={len(runs)}:n={n}",
+        "source": f"derived:{source_room}:{label_set_id}:{provider}:{model_id}:T={temperature}:{answer_mode}:runs={len(runs)}:n={n}",
     }
 
 

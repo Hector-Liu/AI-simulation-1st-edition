@@ -89,3 +89,24 @@ Temperature T rescales the model's choice probabilities to p^(1/T), so T = 0.5 r
 - Vectorized null models with the innovation term ε; γ estimation; the H4b early-state test; the power simulation.
 - `fitted_logit` policy (H6); the prereg bundle export.
 - Token-count balance for labels (D24) and the edit-distance-to-common-English rule. Until then, human review of label sets is the safeguard.
+
+## Answer format (2026-09-25): why so many answers were invalid, and the fix
+
+**Symptom.** Pilot runs in the reward rooms (A0, A2) had 50–76 % invalid answers and up to 93 % void pairings. The no-reward rooms were almost unaffected.
+
+**Cause.** With the scoring rule in the prompt, Claude Haiku 4.5 often starts to reason in prose ("I need to maximize my points by choosing a label that…"). The answer hit the 16-token cap (`finish_reason = max_tokens`), was parsed as invalid, and the identical retry failed the same way. The result was differential missing data between the reward arms, which is a validity threat as well as a practical one.
+
+**Fix: `model.answer_mode = "constrained"` (new default).** The request now carries the provider's structured-output schema. For Anthropic this is `output_config.format`; for OpenAI it is `response_format` with `strict: true`. The schema only admits `{"label": <one of the labels>}`.
+- The enum order equals the label order printed in that prompt, so label order stays randomized per prompt.
+- The prompt text is unchanged.
+- Both reward arms use the same mechanism, so the arms still differ only by the payoff paragraph.
+- The raw JSON is logged, and the label is then checked by the same strict parser.
+
+**Consequences to report.**
+- (1) Agents make an immediate choice and cannot write out reasoning. This holds in every room.
+- (2) The schema adds about 240 input tokens per call, which roughly doubles the input cost. The estimator includes this.
+- (3) `answer_mode = "free_text"` reproduces the v1 behaviour and remains available as a robustness option.
+- (4) Matched priors are only derived from runs with the same answer mode.
+- (5) Runs made before this change resume in free-text mode.
+
+**Check.** A real A2 run (12 agents × 10 rounds, Haiku 4.5, T = 1.0) gave 120 valid answers out of 120, with no retries and no void pairings. The earlier pilot runs with high invalid rates are flagged `exclude_invalid` and should be re-run.

@@ -301,8 +301,8 @@ def plan_launch(body: PlanBody):
 
 @app.get("/api/priors")
 def prior(label_set_id: str, room: str, provider: str, model_id: str, temperature: float | None = None,
-          phase: str = "pilot"):
-    return _json(derive_prior(label_set_id, room, provider, model_id, temperature, phase))
+          phase: str = "pilot", answer_mode: str = "constrained"):
+    return _json(derive_prior(label_set_id, room, provider, model_id, temperature, phase, answer_mode))
 
 
 class KeyBody(BaseModel):

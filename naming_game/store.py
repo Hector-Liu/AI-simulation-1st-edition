@@ -192,6 +192,7 @@ def list_runs(base: Path | None = None) -> list[dict]:
                     "template_version": cfg.get("template_version", "v1"),
                     "partner_source": cfg.get("partner_source", "actual"), "framing": cfg.get("framing", "social"),
                     "model_versions": m.get("model_versions", []),
+                    "answer_mode": (cfg.get("model") or {}).get("answer_mode", "free_text") if cfg.get("model") else None,
                     "provider": (cfg.get("model") or {}).get("provider"), "notes": cfg.get("notes", ""),
                     "summary": summ, "leakage_passed": m.get("leakage_passed"),
                     "rounds_done": m.get("rounds_done"), "dir": str(mpath.parent)})

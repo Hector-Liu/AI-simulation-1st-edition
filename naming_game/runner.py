@@ -75,6 +75,10 @@ def estimate(cfg: ExperimentConfig) -> dict:
     avg_chars = (len(prompts["first_round"]) + len(prompts["with_memory"])) / 2
     tokens_in = int(avg_chars / 3.5) + 8  # rough; the calls log records real usage
     tokens_out = 4
+    if cfg.model and cfg.model.provider != "mock" and cfg.model.answer_mode == "constrained":
+        from .llm import STRUCTURED_OVERHEAD_TOKENS
+        tokens_in += STRUCTURED_OVERHEAD_TOKENS
+        tokens_out = 8
     uncertain = False
     if cfg.model and cfg.model.provider == "anthropic":
         from .llm import ANTHROPIC_PROFILES
@@ -265,7 +269,7 @@ def plan_configs(spec: dict) -> tuple[list[ExperimentConfig], list[dict]]:
                         prior_cache[key] = {"p0": [1 / len(labels)] * len(labels), "source": "uniform (explicit)", "available": True}
                     else:
                         pr = derive_prior(ls, src, model.get("provider"), model.get("model_id"),
-                                          model.get("temperature"), phase)
+                                          model.get("temperature"), phase, model.get("answer_mode", "constrained"))
                         if not pr["available"]:
                             raise PlanError(f"room {room} needs a matched prior from room {src} on label set {ls} "
                                             f"with the same model and temperature, but no completed {src} run exists yet. "

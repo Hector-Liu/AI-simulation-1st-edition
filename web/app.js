@@ -219,7 +219,7 @@ $$("#p-phase button").forEach((b) => b.onclick = () => {
   $$("#p-phase button").forEach((x) => { const on = x === b; x.classList.toggle("active", on); x.setAttribute("aria-checked", on); });
   planPhase = b.dataset.v; updateLauncher();
 });
-["#p-nseeds", "#p-seed0", "#p-n", "#p-rounds", "#p-H", "#p-T", "#p-model", "#p-pin"].forEach((s) => $(s).addEventListener("input", () => updateLauncher()));
+["#p-nseeds", "#p-seed0", "#p-n", "#p-rounds", "#p-H", "#p-T", "#p-model", "#p-pin", "#p-answer"].forEach((s) => $(s).addEventListener("input", () => updateLauncher()));
 $$('input[name="prior_mode"]').forEach((r) => r.onchange = () => updateLauncher());
 
 function planSpec() {
@@ -227,6 +227,7 @@ function planSpec() {
   const ti = tempInfo(provider, model_id);
   const model = { provider, model_id, temperature: ti.settable && isNum($("#p-T").value) ? Number($("#p-T").value) : null, max_tokens_cap: 16 };
   if (provider !== "mock" && $("#p-pin").checked) model.pin_version = "auto";
+  model.answer_mode = $("#p-answer").value;
   if (provider === "mock") model.mock_mode = "uniform";
   return {
     rooms: [...selectedRooms], label_sets: $$("#ls-checks input:checked").map((c) => c.value),
@@ -250,7 +251,7 @@ const updateLauncher = debounce(async () => {
     const lines = [];
     for (const r of replay) for (const ls of spec.label_sets) {
       const src = META.rooms[r].prior_room;
-      const q = new URLSearchParams({ label_set_id: ls, room: src, provider: spec.model.provider, model_id: spec.model.model_id, phase: spec.model.provider === "mock" ? "test" : spec.phase });
+      const q = new URLSearchParams({ label_set_id: ls, room: src, provider: spec.model.provider, model_id: spec.model.model_id, phase: spec.model.provider === "mock" ? "test" : spec.phase, answer_mode: spec.model.answer_mode });
       if (spec.model.temperature !== null) q.set("temperature", spec.model.temperature);
       try {
         const pr = await api(`/api/priors?${q}`);
@@ -375,11 +376,12 @@ function readConfig() {
     if (cfg.policy_default === "voter") cfg.policy_params = { q: num("q") };
   } else {
     cfg.policy_default = "llm";
-    if (kind === "mock") cfg.model = { provider: "mock", model_id: "mock", mock_mode: f.mock_mode.value, mock_invalid_rate: num("mock_invalid_rate") };
+    if (kind === "mock") cfg.model = { provider: "mock", model_id: "mock", mock_mode: f.mock_mode.value, mock_invalid_rate: num("mock_invalid_rate"), answer_mode: f.answer_mode.value };
     else {
       const { provider, model_id } = splitModel(f.model_sel.value);
       cfg.model = { provider, model_id, temperature: f.temperature.disabled ? null : num("temperature"), max_tokens_cap: num("max_tokens_cap") };
       if (f.pin.checked) cfg.model.pin_version = "auto";
+      cfg.model.answer_mode = f.answer_mode.value;
     }
   }
   if (f.p0.value.trim()) { cfg.p0 = f.p0.value.split(/[,\s]+/).filter(Boolean).map(Number); cfg.p0_source = customP0Source || "explicit (custom run)"; }
@@ -509,7 +511,7 @@ $("#cfg").elements.p0.addEventListener("input", () => { customP0Source = ""; $("
 $("#fill-prior").onclick = async () => {
   const c = readConfig(), room = c.reward_mode === "local_match" ? "A0" : "B0";
   if (!c.model) { $("#fill-prior-msg").textContent = "Choose a model first."; return; }
-  const q = new URLSearchParams({ label_set_id: c.label_set_id, room, provider: c.model.provider, model_id: c.model.model_id, phase: c.phase });
+  const q = new URLSearchParams({ label_set_id: c.label_set_id, room, provider: c.model.provider, model_id: c.model.model_id, phase: c.phase, answer_mode: c.model.answer_mode || "constrained" });
   if (c.model.temperature !== null && c.model.temperature !== undefined) q.set("temperature", c.model.temperature);
   const pr = await api(`/api/priors?${q}`);
   if (!pr.available) { $("#fill-prior-msg").textContent = `No finished ${room} run on ${c.label_set_id} with this model and temperature yet.`; return; }
@@ -633,7 +635,8 @@ async function openRunDialog(runId) {
       ["Winning label", s.final_modal_label ?? "–"], ["Its share (last 20 %)", fmt(s.final_modal_share, 2)], ["Fragmented", s.fragmentation === undefined ? "–" : (s.fragmentation ? (s.fragmentation_stable ? "yes, stable" : "yes, not stable") : "no")],
       ["Labels used (last 20 %)", s.n_unique_last20pct ?? "–"], ["Invalid answers", fmt(s.invalid_rate)], ["Void pairings", fmt(s.void_rate)],
       ["Leakage check", d.leakage ? (d.leakage.passed ? `passed (${d.leakage.prompts_checked})` : "FAILED") : "–"], ["Model version", (m.model_versions || []).join(", ") || "–"],
-      ["Temperature", c.model?.temperature ?? (c.model ? "default" : "–")], ["Prior source", c.p0_source || (c.p0 ? "explicit" : "uniform / none")]])}</div>
+      ["Temperature", c.model?.temperature ?? (c.model ? "default" : "–")], ["Answer format", c.model ? (c.model.answer_mode === "constrained" ? "pick from list" : "free text") : "–"],
+      ["Prior source", c.p0_source || (c.p0 ? "explicit" : "uniform / none")]])}</div>
     ${Object.keys(cbt).length ? `<p class="help">Consensus at other thresholds: ${Object.entries(cbt).map(([t, v]) => `${t}: ${v.reached ? `round ${v.T_round}` : "not reached"}`).join(" · ")}</p>` : ""}
     ${s.flag_invalid ? notice("warn", `Invalid-answer rate above ${c.invalid_rate_flag}${s.exclude_invalid ? " and above the exclusion threshold: exclude this run" : ""}.`) : ""}
     ${(m.model_notes || []).map((n) => notice("warn", esc(n))).join("")}${m.error ? notice("bad", esc(m.error)) : ""}
